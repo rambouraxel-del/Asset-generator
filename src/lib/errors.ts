@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   "MISSING_API_KEY",
   "EMPTY_REQUEST",
   "TEXT_TOO_LONG",
+  "INVALID_SIZE",
   "TOO_MANY_REFERENCES",
   "UNSUPPORTED_IMAGE_FORMAT",
   "FILE_TOO_LARGE",
@@ -34,6 +35,8 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   EMPTY_REQUEST: "Décrivez l'asset à créer avant de lancer la génération.",
   TEXT_TOO_LONG:
     "Le texte saisi est trop long. Raccourcissez le contexte ou la demande.",
+  INVALID_SIZE:
+    "La résolution demandée n'est pas acceptée par le modèle. Corrigez-la dans les réglages de génération.",
   TOO_MANY_REFERENCES:
     "Trop d'images de référence activées. Désactivez-en quelques-unes et réessayez.",
   UNSUPPORTED_IMAGE_FORMAT:
@@ -66,6 +69,7 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
   MISSING_API_KEY: 503,
   EMPTY_REQUEST: 400,
   TEXT_TOO_LONG: 400,
+  INVALID_SIZE: 400,
   TOO_MANY_REFERENCES: 400,
   UNSUPPORTED_IMAGE_FORMAT: 415,
   FILE_TOO_LARGE: 413,

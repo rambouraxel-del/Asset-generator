@@ -6,31 +6,16 @@
  * ---------------------------------------------------------------------------
  * AUCUNE MÉMOIRE ENTRE LES GÉNÉRATIONS
  * ---------------------------------------------------------------------------
- * `GenerationRequest` est un instantané complet et autonome de ce qui doit
- * être envoyé. Il ne contient ni résultat précédent, ni historique. Le bouton
- * "Regenerer" reutilise exactement le même instantané : le nouvel appel est
- * donc identique au premier, et la génération précédente n'est jamais
- * transmise à OpenAI.
+ * `GenerationRequest` (voir `lib/generation/payload.ts`) est un instantané
+ * complet et autonome. Il ne contient ni résultat précédent, ni historique, ni
+ * asset de bibliothèque. Le bouton « Régénérer » réutilise exactement le même
+ * instantané : le nouvel appel est donc identique au premier.
  * ---------------------------------------------------------------------------
  */
 
-import type { GenerationSettings } from "@/lib/storage/context";
 import { AppError, isErrorCode, userMessageFor } from "@/lib/errors";
+import type { GenerationRequest } from "@/lib/generation/payload";
 import type { ApiErrorResponse, GenerateSuccessResponse } from "@/types/api";
-
-/** Référence prête à être envoyée : nom + contenu binaire, rien d'autre. */
-export interface OutgoingReference {
-  name: string;
-  blob: Blob;
-}
-
-/** Instantane immuable d'une demande de génération. */
-export interface GenerationRequest {
-  context: string;
-  request: string;
-  settings: GenerationSettings;
-  references: OutgoingReference[];
-}
 
 export async function requestGeneration(
   payload: GenerationRequest,
@@ -43,6 +28,13 @@ export async function requestGeneration(
   formData.set("quality", payload.settings.quality);
   formData.set("background", payload.settings.background);
   formData.set("outputFormat", payload.settings.outputFormat);
+  formData.set("categoryName", payload.categoryName ?? "");
+  formData.set("categoryRule", payload.categoryRule);
+  formData.set("targetWidth", payload.targetWidth === null ? "" : String(payload.targetWidth));
+  formData.set(
+    "targetHeight",
+    payload.targetHeight === null ? "" : String(payload.targetHeight),
+  );
 
   for (const reference of payload.references) {
     formData.append("references", reference.blob, reference.name);
@@ -50,11 +42,7 @@ export async function requestGeneration(
 
   let response: Response;
   try {
-    response = await fetch("/api/generate", {
-      method: "POST",
-      body: formData,
-      signal,
-    });
+    response = await fetch("/api/generate", { method: "POST", body: formData, signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new AppError("NETWORK_ERROR", { detail: String(error) });

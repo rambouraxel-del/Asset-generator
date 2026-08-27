@@ -14,7 +14,7 @@ describe("buildAssetPrompt", () => {
     const prompt = buildAssetPrompt(BASE);
 
     expect(prompt).toContain(PROMPT_TEMPLATE.intro);
-    expect(prompt).toContain(PROMPT_TEMPLATE.permanentRulesHeading);
+    expect(prompt).toContain(PROMPT_TEMPLATE.styleHeading);
     expect(prompt).toContain(BASE.context);
     expect(prompt).toContain(PROMPT_TEMPLATE.referencesNotice);
     expect(prompt).toContain(PROMPT_TEMPLATE.assetHeading);
@@ -36,7 +36,7 @@ describe("buildAssetPrompt", () => {
 
   it("omet le bloc de regles quand le contexte est vide", () => {
     const prompt = buildAssetPrompt({ ...BASE, context: "   " });
-    expect(prompt).not.toContain(PROMPT_TEMPLATE.permanentRulesHeading);
+    expect(prompt).not.toContain(PROMPT_TEMPLATE.styleHeading);
   });
 
   it("signale l'absence de reference", () => {

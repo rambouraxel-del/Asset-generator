@@ -2,15 +2,11 @@ import "server-only";
 
 import OpenAI, { toFile } from "openai";
 
-import type {
-  BackgroundMode,
-  ImageQuality,
-  ImageSize,
-  OutputFormat,
-} from "@/lib/config";
+import type { BackgroundMode, ImageQuality, OutputFormat } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { getImageModel, getOpenAIClient, isMockMode } from "@/lib/openai/client";
 import type { ValidatedReferenceImage } from "@/lib/validation/imageFile";
+import type { TokenUsage } from "@/types/domain";
 
 /**
  * Appel à l'API Images d'OpenAI.
@@ -38,7 +34,8 @@ import type { ValidatedReferenceImage } from "@/lib/validation/imageFile";
 export interface GenerateAssetImageParams {
   prompt: string;
   references: ValidatedReferenceImage[];
-  size: ImageSize;
+  /** « auto » ou « LARGEURxHAUTEUR », déjà validé par `validateImageSize`. */
+  size: string;
   quality: ImageQuality;
   background: BackgroundMode;
   outputFormat: OutputFormat;
@@ -50,7 +47,12 @@ export interface GeneratedImage {
   mimeType: string;
   model: string;
   /** Consommation de jetons remontee par l'API, si disponible. */
-  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  /**
+   * Consommation de jetons remontée par l'API.
+   * Chaque champ vaut `null` si l'API ne fournit pas la donnée : rien n'est
+   * jamais estimé ni inventé à la place.
+   */
+  usage: TokenUsage | null;
 }
 
 const MIME_BY_FORMAT: Record<OutputFormat, string> = {
@@ -107,20 +109,43 @@ export async function generateAssetImage(
       base64,
       mimeType: MIME_BY_FORMAT[params.outputFormat],
       model,
-      usage: response.usage
-        ? {
-            inputTokens: response.usage.input_tokens,
-            outputTokens: response.usage.output_tokens,
-            totalTokens: response.usage.total_tokens,
-          }
-        : undefined,
+      usage: extractUsage(response.usage),
     };
   } catch (error) {
     throw translateOpenAIError(error);
   }
 }
 
-/** `Uint8Array` -> `ArrayBuffer` sans copie superflue, accepte par `toFile`. */
+/**
+ * Traduit le bloc `usage` de l'API en `TokenUsage`.
+ *
+ * Chaque champ absent devient `null` plutôt que 0 : l'interface doit pouvoir
+ * distinguer « zéro jeton » de « donnée non fournie par l'API ».
+ */
+function extractUsage(usage: unknown): TokenUsage | null {
+  if (typeof usage !== "object" || usage === null) return null;
+
+  const record = usage as {
+    output_tokens?: unknown;
+    total_tokens?: unknown;
+    input_tokens_details?: { text_tokens?: unknown; image_tokens?: unknown };
+  };
+
+  const details = record.input_tokens_details;
+
+  return {
+    textInputTokens: numberOrNull(details?.text_tokens),
+    imageInputTokens: numberOrNull(details?.image_tokens),
+    imageOutputTokens: numberOrNull(record.output_tokens),
+    totalTokens: numberOrNull(record.total_tokens),
+  };
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** `Uint8Array` -> `ArrayBuffer` sans copie superflue, accepté par `toFile`. */
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(copy).set(bytes);
@@ -178,6 +203,7 @@ function buildMockImage(model: string): GeneratedImage {
     base64: Buffer.from(svg, "utf8").toString("base64"),
     mimeType: "image/svg+xml",
     model: `${model} (mock)`,
-    usage: undefined,
+    // Le mode maquette n'invente pas de consommation : il n'y en a pas eu.
+    usage: null,
   };
 }

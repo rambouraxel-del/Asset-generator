@@ -11,6 +11,7 @@ import {
   validateReferenceSet,
   type ValidatedReferenceImage,
 } from "@/lib/validation/imageFile";
+import { normalizeImageSize } from "@/lib/validation/imageSize";
 import type { GenerateSuccessResponse } from "@/types/api";
 
 export const runtime = "nodejs";
@@ -42,10 +43,18 @@ export const maxDuration = 300;
  * ---------------------------------------------------------------------------
  *
  * Corps attendu : multipart/form-data
- *   - context      : string (règles permanentes, peut être vide)
- *   - request      : string (demande ponctuelle, obligatoire)
+ *   - context        : string (contexte du Style Pack, peut être vide)
+ *   - request        : string (demande ponctuelle, obligatoire)
+ *   - categoryName   : string (nom de la catégorie, ou vide)
+ *   - categoryRule   : string (règle textuelle de la catégorie, ou vide)
+ *   - targetWidth    : string (dimension cible de l'asset, ou vide)
+ *   - targetHeight   : string (dimension cible de l'asset, ou vide)
  *   - size/quality/background/outputFormat : réglages de génération
- *   - références   : 0 à 16 fichiers image (PNG / JPEG / WebP)
+ *   - references     : 0 à 16 fichiers image (PNG / JPEG / WebP)
+ *
+ * Noter la distinction : `targetWidth`/`targetHeight` décrivent l'emprise de
+ * l'asset et ne servent qu'au prompt, tandis que `size` est la résolution
+ * réellement demandée à l'API.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   try {
@@ -64,7 +73,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       quality: readString(formData, "quality"),
       background: readString(formData, "background"),
       outputFormat: readString(formData, "outputFormat"),
+      categoryName: readOptionalString(formData, "categoryName"),
+      categoryRule: readString(formData, "categoryRule"),
+      targetWidth: readOptionalInteger(formData, "targetWidth"),
+      targetHeight: readOptionalInteger(formData, "targetHeight"),
     });
+
+    const size = normalizeImageSize(input.size);
 
     const references = await readReferences(formData);
     validateReferenceSet(references);
@@ -72,6 +87,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Le prompt est assemble ici et nulle part ailleurs (cf. lib/prompt).
     const prompt = buildAssetPrompt({
       context: input.context,
+      categoryName: input.categoryName,
+      targetWidth: input.targetWidth,
+      targetHeight: input.targetHeight,
+      categoryRule: input.categoryRule,
       request: input.request,
       referenceCount: references.length,
       background: input.background,
@@ -80,16 +99,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     const image = await generateAssetImage({
       prompt,
       references,
-      size: input.size,
+      size,
       quality: input.quality,
       background: input.background,
       outputFormat: input.outputFormat,
     });
 
     // Journal serveur volontairement minimal : ni prompt, ni image, ni clé.
+    // Journal serveur volontairement minimal : ni prompt, ni image, ni clé.
     console.info(
-      `[generate] ok model=${image.model} references=${references.length} size=${input.size} quality=${input.quality}` +
-        (image.usage ? ` tokens=${image.usage.totalTokens}` : ""),
+      `[generate] ok model=${image.model} references=${references.length} size=${size} quality=${input.quality}` +
+        (image.usage?.totalTokens != null ? ` tokens=${image.usage.totalTokens}` : ""),
     );
 
     const body: GenerateSuccessResponse = {
@@ -98,12 +118,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       prompt,
       meta: {
         model: image.model,
-        size: input.size,
+        size,
         quality: input.quality,
         background: input.background,
         outputFormat: input.outputFormat,
         referenceCount: references.length,
         generatedAt: new Date().toISOString(),
+        categoryName: input.categoryName,
+        targetWidth: input.targetWidth,
+        targetHeight: input.targetHeight,
         usage: image.usage,
       },
     };
@@ -146,6 +169,19 @@ async function readFormData(request: Request): Promise<FormData> {
 function readString(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
+}
+
+/** Chaîne vide et champ absent valent tous deux « non renseigné ». */
+function readOptionalString(formData: FormData, key: string): string | null {
+  const value = readString(formData, key).trim();
+  return value === "" ? null : value;
+}
+
+function readOptionalInteger(formData: FormData, key: string): number | null {
+  const raw = readOptionalString(formData, key);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function readReferences(formData: FormData): Promise<ValidatedReferenceImage[]> {

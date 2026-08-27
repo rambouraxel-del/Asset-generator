@@ -3,10 +3,9 @@
 import { useCallback, useRef, useState } from "react";
 
 import { AppError, userMessageFor } from "@/lib/errors";
-import {
-  requestGeneration,
-  type GenerationRequest,
-} from "@/lib/client/generateAsset";
+import { requestGeneration } from "@/lib/client/generateAsset";
+import type { GenerationRequest } from "@/lib/generation/payload";
+import type { TokenUsage } from "@/types/domain";
 import type { GenerateSuccessResponse } from "@/types/api";
 
 /**
@@ -15,14 +14,22 @@ import type { GenerateSuccessResponse } from "@/types/api";
  * ---------------------------------------------------------------------------
  * AUCUNE MÉMOIRE ENTRE LES GÉNÉRATIONS
  * ---------------------------------------------------------------------------
- * `lastRequest` conservé l'instantané des ENTREES (contexte, références,
- * demande) uniquement pour permettre « Régénérer » à l'identique. Il ne
- * contient jamais le résultat précédent, et le résultat affiché n'est jamais
- * reinjecte dans une requête. Cet instantané vit en mémoire seulement : il
- * disparait au rechargement de la page.
+ * `lastRequestRef` conserve l'instantané des ENTRÉES (contexte, catégorie,
+ * références, demande) uniquement pour permettre « Régénérer » à l'identique.
+ * Il ne contient jamais le résultat précédent, et le résultat affiché n'est
+ * jamais réinjecté dans une requête.
+ *
+ * Chaque appel à `run` REMPLACE cet instantané : la génération B n'hérite de
+ * rien de la génération A. `lastRequestRef` vit en mémoire seulement et
+ * disparaît au rechargement de la page.
  * ---------------------------------------------------------------------------
  */
-export function useGeneration() {
+export function useGeneration({
+  onUsage,
+}: {
+  /** Appelée après chaque génération réussie, avec l'usage réel de l'API. */
+  onUsage: (usage: TokenUsage | null) => void;
+}) {
   const [result, setResult] = useState<GenerateSuccessResponse | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +41,7 @@ export function useGeneration() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Remplacement complet : aucun report d'une génération à la suivante.
     lastRequestRef.current = payload;
     setPending(true);
     setError(null);
@@ -41,6 +49,7 @@ export function useGeneration() {
     try {
       const response = await requestGeneration(payload, controller.signal);
       setResult(response);
+      onUsage(response.meta.usage);
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       setResult(null);
@@ -51,9 +60,10 @@ export function useGeneration() {
         setPending(false);
       }
     }
-  }, []);
+    // `onUsage` provient de l'état applicatif et y est déjà mémoïsé.
+  }, [onUsage]);
 
-  /** Relance strictement la même requête : même contexte, mêmes références, même demande. */
+  /** Relance strictement la même requête : même pack, mêmes références, même demande. */
   const regenerate = useCallback(async () => {
     const payload = lastRequestRef.current;
     if (payload) await run(payload);
@@ -65,6 +75,13 @@ export function useGeneration() {
     setPending(false);
   }, []);
 
+  /** Efface le résultat affiché (changement de pack, par exemple). */
+  const clearResult = useCallback(() => {
+    setResult(null);
+    setError(null);
+    lastRequestRef.current = null;
+  }, []);
+
   return {
     result,
     pending,
@@ -72,6 +89,7 @@ export function useGeneration() {
     run,
     regenerate,
     cancel,
+    clearResult,
     clearError: useCallback(() => setError(null), []),
   };
 }

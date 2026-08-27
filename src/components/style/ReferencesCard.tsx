@@ -3,54 +3,77 @@
 import { useRef } from "react";
 
 import { ACCEPTED_IMAGE_MIME_TYPES, LIMITS } from "@/lib/config";
-import type { ReferenceImage } from "@/lib/storage/references";
+import type { StyleReference } from "@/types/domain";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { Section } from "@/components/ui/Section";
 
 /**
- * Section B — Références graphiques.
- * Seules les références activées sont envoyées lors d'une génération.
+ * Références graphiques du Style Pack actif.
+ *
+ * Ces images sont des ENTRÉES de génération. Aucun asset généré n'apparaît ici.
  */
-export function ReferencesSection({
+export function ReferencesCard({
+  packName,
   references,
   previews,
   enabledCount,
   enabledBytes,
-  loading,
-  error,
   onAddFiles,
   onToggle,
   onRemove,
   onSetAllEnabled,
 }: {
-  references: ReferenceImage[];
+  packName: string;
+  references: StyleReference[];
   previews: Record<string, string>;
   enabledCount: number;
   enabledBytes: number;
-  loading: boolean;
-  error: string | null;
   onAddFiles: (files: File[]) => void;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onSetAllEnabled: (enabled: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const ratio = enabledBytes / LIMITS.MAX_TOTAL_BYTES;
   const overBudget = enabledBytes > LIMITS.MAX_TOTAL_BYTES;
 
   return (
     <Section
-      step="B"
+      step="3"
       title="Références"
-      description={`Jusqu'à ${LIMITS.MAX_REFERENCES} images PNG, JPEG ou WebP. Elles restent dans ce navigateur.`}
+      description={`Référentiel graphique du pack « ${packName} ». Jusqu'à ${LIMITS.MAX_REFERENCES} images PNG, JPEG ou WebP.`}
       action={
         references.length > 0 ? (
           <span className="text-xs text-muted">
-            {enabledCount}/{references.length} activée{enabledCount > 1 ? "s" : ""}
+            {enabledCount}/{references.length} active{enabledCount > 1 ? "s" : ""}
           </span>
         ) : null
       }
     >
+      {/* Jauge de charge utile : rend la limite d'envoi immédiatement lisible. */}
+      <div className="mb-3 rounded-xl bg-surface-muted p-3">
+        <div className="flex items-baseline justify-between gap-2 text-xs">
+          <span className="text-muted">Poids total des références actives</span>
+          <span className={overBudget ? "font-semibold text-danger" : "font-semibold"}>
+            {formatBytes(enabledBytes)} / {formatBytes(LIMITS.MAX_TOTAL_BYTES)}
+          </span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-border">
+          <div
+            className={`h-full rounded-full ${overBudget ? "bg-danger" : "bg-accent"}`}
+            style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }}
+          />
+        </div>
+        {overBudget ? (
+          <p className="mt-2 text-xs text-danger">
+            Au-delà de cette limite la génération est refusée. Désactivez des références,
+            ou regroupez-les dans une planche compacte.
+          </p>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Button
           variant="secondary"
@@ -85,29 +108,11 @@ export function ReferencesSection({
         }}
       />
 
-      {error ? (
-        <div className="mt-3">
-          <Alert tone="error">{error}</Alert>
-        </div>
-      ) : null}
-
-      {overBudget ? (
-        <div className="mt-3">
-          <Alert tone="warning">
-            Les références activées pèsent {formatBytes(enabledBytes)}, au-delà de la
-            limite de {formatBytes(LIMITS.MAX_TOTAL_BYTES)} par génération.
-            Désactivez-en quelques-unes.
-          </Alert>
-        </div>
-      ) : null}
-
       <div className="mt-3">
-        {loading ? (
-          <p className="text-sm text-muted">Chargement des références…</p>
-        ) : references.length === 0 ? (
+        {references.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
-            Aucune référence pour l&apos;instant. La génération fonctionnera avec le
-            contexte seul.
+            Aucune référence dans ce pack. La génération fonctionnera avec le contexte
+            seul.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -142,19 +147,25 @@ export function ReferencesSection({
                   aria-label={`Activer ${reference.name} comme référence`}
                   className="size-5 shrink-0 accent-[var(--accent)]"
                 />
-                <Button
-                  variant="danger"
+                <ConfirmButton
+                  label="Suppr."
                   className="px-2"
-                  aria-label={`Supprimer ${reference.name}`}
-                  onClick={() => onRemove(reference.id)}
-                >
-                  Suppr.
-                </Button>
+                  onConfirm={() => onRemove(reference.id)}
+                  ariaLabel={`Supprimer ${reference.name}`}
+                />
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {references.length >= LIMITS.MAX_REFERENCES ? (
+        <div className="mt-3">
+          <Alert tone="info">
+            Limite de {LIMITS.MAX_REFERENCES} références atteinte pour ce pack.
+          </Alert>
+        </div>
+      ) : null}
     </Section>
   );
 }

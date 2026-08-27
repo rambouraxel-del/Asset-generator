@@ -1,8 +1,8 @@
 {
   "name": "asset-generator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Generateur d'assets graphiques coherents pour jeu video, base sur l'API OpenAI GPT Image.",
+  "description": "Générateur d'assets graphiques cohérents pour jeu vidéo, basé sur l'API OpenAI GPT Image.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -27,6 +27,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.11.10",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.11"

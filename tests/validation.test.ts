@@ -16,6 +16,10 @@ const VALID_INPUT = {
   quality: "high",
   background: "transparent",
   outputFormat: "png",
+  categoryName: "Petit objet",
+  categoryRule: "L'objet doit tenir entièrement dans cette emprise.",
+  targetWidth: 32,
+  targetHeight: 32,
 };
 
 function png(byteLength = 32): Uint8Array {
@@ -41,8 +45,37 @@ describe("parseGenerationInput", () => {
     ).toThrow(expect.objectContaining({ code: "TEXT_TOO_LONG" }));
   });
 
-  it("rejette un reglage inconnu", () => {
+  it("rejette une résolution refusée par le modèle", () => {
+    // 9999 n'est ni un multiple de 16 ni un côté autorisé.
     expect(() => parseGenerationInput({ ...VALID_INPUT, size: "9999x9999" })).toThrow(
+      expect.objectContaining({ code: "INVALID_SIZE" }),
+    );
+    // 64×64 est une taille d'asset légitime, mais pas une résolution générable.
+    expect(() => parseGenerationInput({ ...VALID_INPUT, size: "64x64" })).toThrow(
+      expect.objectContaining({ code: "INVALID_SIZE" }),
+    );
+  });
+
+  it("rejette une qualité inconnue", () => {
+    expect(() => parseGenerationInput({ ...VALID_INPUT, quality: "ultra" })).toThrow(
+      expect.objectContaining({ code: "INVALID_REQUEST" }),
+    );
+  });
+
+  it("accepte une catégorie absente", () => {
+    const parsed = parseGenerationInput({
+      ...VALID_INPUT,
+      categoryName: null,
+      categoryRule: "",
+      targetWidth: null,
+      targetHeight: null,
+    });
+    expect(parsed.categoryName).toBeNull();
+    expect(parsed.targetWidth).toBeNull();
+  });
+
+  it("rejette une dimension cible absurde", () => {
+    expect(() => parseGenerationInput({ ...VALID_INPUT, targetWidth: -5 })).toThrow(
       expect.objectContaining({ code: "INVALID_REQUEST" }),
     );
   });

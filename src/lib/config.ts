@@ -30,11 +30,11 @@ export const LIMITS = {
   MAX_TOTAL_BYTES: 4 * 1024 * 1024, // 4 Mo
   /** Taille max d'un fichier accepté à l'import avant redimensionnement client. */
   MAX_IMPORT_BYTES: 20 * 1024 * 1024, // 20 Mo
-  /** Cote max d'une référence : au-dela, l'image est reduite dans le navigateur. */
+  /** Côté max d'une référence : au-delà, l'image est réduite dans le navigateur. */
   MAX_REFERENCE_EDGE: 1536,
 } as const;
 
-/** Formats d'image acceptes en entrée (contrainte de l'API OpenAI Images). */
+/** Formats d'image acceptés en entrée (contrainte de l'API OpenAI Images). */
 export const ACCEPTED_IMAGE_MIME_TYPES = [
   "image/png",
   "image/jpeg",
@@ -52,29 +52,71 @@ export const BACKGROUND_MODES = ["transparent", "opaque", "auto"] as const;
 export type BackgroundMode = (typeof BACKGROUND_MODES)[number];
 
 /**
- * Tailles proposées dans l'interface.
- * `gpt-image-2` accepte aussi des resolutions libres "LARGEURxHAUTEUR"
- * (multiples de 16, ratio entre 1:3 et 3:1) : la V0.2 pourra les exposer.
+ * Résolutions proposées en un clic. La résolution peut aussi être saisie
+ * librement (voir `SIZE_CONSTRAINTS` et `lib/validation/imageSize.ts`).
  */
-export const IMAGE_SIZES = [
+export const IMAGE_SIZE_PRESETS = [
   "auto",
   "1024x1024",
   "1024x1536",
   "1536x1024",
 ] as const;
-export type ImageSize = (typeof IMAGE_SIZES)[number];
+export type ImageSizePreset = (typeof IMAGE_SIZE_PRESETS)[number];
 
-/** Niveaux de qualite exposes dans l'interface. */
+/**
+ * Contraintes de résolution de `gpt-image-2`, vérifiées le 2026-08-27 dans la
+ * documentation du SDK `openai@7.7.0` (`ImageEditParamsBase.size`) :
+ *
+ *   « arbitrary resolutions are supported as WIDTHxHEIGHT strings […] Width and
+ *     height must both be divisible by 16 and the requested aspect ratio must be
+ *     between 1:3 and 3:1 […] the maximum supported resolution is 3840x2160. »
+ *
+ * Les bornes en nombre total de pixels ne figurent pas dans le SDK ; elles sont
+ * documentées par OpenAI et recoupées par plusieurs sources. Elles sont isolées
+ * ici pour être corrigées d'un seul endroit si le modèle évolue.
+ *
+ * Conséquence importante : le modèle NE SAIT PAS produire une image de 64×64 px.
+ * Les dimensions cibles d'une catégorie d'asset sont donc une contrainte de
+ * prompt, distincte de la résolution envoyée à l'API.
+ */
+export const SIZE_CONSTRAINTS = {
+  /** Largeur et hauteur doivent être des multiples de cette valeur. */
+  MULTIPLE_OF: 16,
+  /** Côté le plus long autorisé. */
+  MAX_EDGE: 3840,
+  /** Ratio maximal entre le grand et le petit côté (1:3 à 3:1). */
+  MAX_ASPECT_RATIO: 3,
+  /** Nombre total de pixels minimal (≈ 1024×640). */
+  MIN_TOTAL_PIXELS: 655_360,
+  /** Nombre total de pixels maximal (3840×2160). */
+  MAX_TOTAL_PIXELS: 8_294_400,
+  /** Au-delà, la résolution est signalée comme expérimentale par OpenAI. */
+  EXPERIMENTAL_ABOVE_TOTAL_PIXELS: 2560 * 1440,
+} as const;
+
+/** Niveaux de qualité exposés dans l'interface. */
 export const IMAGE_QUALITIES = ["auto", "low", "medium", "high"] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 
-/** Reglages de génération par défaut (orientés assets de jeu video). */
+/** Réglages de génération par défaut (orientés assets de jeu vidéo). */
 export const DEFAULT_GENERATION_SETTINGS = {
-  size: "1024x1024" as ImageSize,
+  /** « auto », un preset, ou une résolution libre « LARGEURxHAUTEUR ». */
+  size: "1024x1024" as string,
   quality: "high" as ImageQuality,
   background: "transparent" as BackgroundMode,
   outputFormat: "png" as OutputFormat,
 } as const;
+
+/** Longueurs maximales des champs propres aux Style Packs et catégories. */
+export const NAME_LIMITS = {
+  PACK_NAME_MAX_CHARS: 60,
+  CATEGORY_NAME_MAX_CHARS: 40,
+  CATEGORY_RULE_MAX_CHARS: 400,
+  ASSET_NAME_MAX_CHARS: 80,
+} as const;
+
+/** Nombre max d'assets conservés dans la bibliothèque locale. */
+export const LIBRARY_MAX_ASSETS = 500;
 
 /** Timeout de l'appel OpenAI (surchargeable via OPENAI_TIMEOUT_MS). */
 export const DEFAULT_OPENAI_TIMEOUT_MS = 240_000;
