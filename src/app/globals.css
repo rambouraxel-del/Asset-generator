@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/*
+ * Palette minimaliste, claire et sombre.
+ * Les couleurs sont definies une seule fois en variables CSS, puis exposees
+ * a Tailwind : changer de theme en V0.2 ne demandera qu'un seul endroit.
+ */
+:root {
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f1f3f6;
+  --border: #dfe3e9;
+  --foreground: #14181f;
+  --muted: #616b7a;
+  --accent: #2b6ef2;
+  --accent-foreground: #ffffff;
+  --danger: #b4232b;
+  --danger-surface: #fdeceb;
+  --success: #1a7f52;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0e1116;
+    --surface: #161b22;
+    --surface-muted: #1d232c;
+    --border: #2b323c;
+    --foreground: #e8ecf1;
+    --muted: #94a0b0;
+    --accent: #4c8dff;
+    --accent-foreground: #0b0f14;
+    --danger: #ff8a84;
+    --danger-surface: #3a1d1d;
+    --success: #5fd39b;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
+  --color-danger-surface: var(--danger-surface);
+  --color-success: var(--success);
+}
+
+html {
+  /* Empeche iOS d'agrandir le texte en mode paysage. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+/*
+ * iOS zoome automatiquement sur un champ dont la police fait moins de 16px.
+ * On impose donc 16px minimum sur toutes les saisies.
+ */
+input,
+textarea,
+select,
+button {
+  font-size: max(16px, 1rem);
+}
+
+/* Damier : rend la transparence visible sous l'asset genere. */
+.checkerboard {
+  background-color: var(--surface-muted);
+  background-image:
+    linear-gradient(45deg, var(--border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--border) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--border) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--border) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
