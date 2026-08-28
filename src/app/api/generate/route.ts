@@ -94,6 +94,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       finalWidth: readOptionalInteger(formData, "finalWidth"),
       finalHeight: readOptionalInteger(formData, "finalHeight"),
       qualityMode: readString(formData, "qualityMode") || "auto",
+      pixelPipeline: readString(formData, "pixelPipeline") || "grid",
     });
 
     const plan = planGeneration(input);
@@ -110,6 +111,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       categoryRule: input.categoryRule,
       finalWidth: input.finalWidth,
       finalHeight: input.finalHeight,
+      // La consigne de grille n'est envoyée que si elle est réellement
+      // exploitable ET si l'utilisateur a choisi ce mode.
+      logicalGridScale:
+        plan.logicalGridReady && input.pixelPipeline === "grid" ? plan.gridScale : null,
       request: input.request,
       referenceCount: references.length,
       background: input.background,
@@ -129,7 +134,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Post-traitement local : aucun appel réseau, aucun jeton consommé.
     const delivered = plan.postProcess
-      ? applyPostProcessing(image.base64, plan.finalWidth, plan.finalHeight)
+      ? applyPostProcessing(image.base64, {
+          finalWidth: plan.finalWidth,
+          finalHeight: plan.finalHeight,
+          pipeline: input.pixelPipeline,
+        })
       : { base64: image.base64, mimeType: image.mimeType, report: null };
 
     // Journal serveur volontairement minimal : ni prompt, ni image, ni clé.
@@ -138,7 +147,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       `[generate] ok model=${image.model} references=${references.length} size=${plan.size} quality=${plan.apiQuality}` +
         (plan.postProcess ? ` final=${plan.finalWidth}x${plan.finalHeight}` : "") +
         (delivered.report
-          ? ` colours=${delivered.report.metrics.colourCount} alphas=${delivered.report.metrics.alphaLevelCount} verdict=${delivered.report.metrics.verdict}`
+          ? ` pipeline=${delivered.report.pipeline}` +
+            (delivered.report.grid
+              ? ` grid=x${delivered.report.grid.scaleX} fidelity=${Math.round(delivered.report.grid.stats.fidelity * 100)}%`
+              : ` fallback=${delivered.report.fallbackReason ?? "-"}`) +
+            ` colours=${delivered.report.metrics.colourCount} alphas=${delivered.report.metrics.alphaLevelCount} verdict=${delivered.report.metrics.verdict}`
           : "") +
         (image.usage?.totalTokens != null ? ` tokens=${image.usage.totalTokens}` : ""),
     );
@@ -162,6 +175,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         finalHeight: plan.postProcess ? plan.finalHeight : null,
         qualityMode: input.qualityMode,
         qualityModeLabel: plan.qualityLabel,
+        pixelPipeline: input.pixelPipeline,
+        logicalGridReady: plan.logicalGridReady,
         generationSize: plan.size,
         minimalResolution: plan.minimalResolution,
         postProcessing: delivered.report,
@@ -204,6 +219,8 @@ function planGeneration(input: GenerationInput) {
       apiQuality: input.quality,
       qualityLabel: null,
       minimalResolution: false,
+      logicalGridReady: false,
+      gridScale: null as number | null,
       finalWidth: 0,
       finalHeight: 0,
     };
@@ -233,6 +250,8 @@ function planGeneration(input: GenerationInput) {
     apiQuality: apiQualityFor(resolvedMode),
     qualityLabel: describeQualityMode(input.qualityMode as QualityMode, resolvedMode),
     minimalResolution: choice.minimal,
+    logicalGridReady: choice.logicalGridReady,
+    gridScale: choice.logicalGridReady ? choice.scaleX : null,
     finalWidth,
     finalHeight,
   };
@@ -247,13 +266,13 @@ function planGeneration(input: GenerationInput) {
  */
 function applyPostProcessing(
   base64: string,
-  finalWidth: number,
-  finalHeight: number,
+  options: { finalWidth: number; finalHeight: number; pipeline: "grid" | "classic" },
 ): { base64: string; mimeType: string; report: PostProcessReport | null } {
   try {
     const result = postProcessToFinalSize(Buffer.from(base64, "base64"), {
-      finalWidth,
-      finalHeight,
+      finalWidth: options.finalWidth,
+      finalHeight: options.finalHeight,
+      pipeline: options.pipeline,
     });
     return {
       base64: result.buffer.toString("base64"),

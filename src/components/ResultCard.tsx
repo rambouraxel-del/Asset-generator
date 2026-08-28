@@ -99,6 +99,12 @@ export function ResultCard({
             alphaLevelCount: result.meta.postProcessing.metrics.alphaLevelCount,
             semiTransparentPixels: result.meta.postProcessing.metrics.semiTransparentPixels,
             verdict: result.meta.postProcessing.metrics.verdict,
+            // Grille logique (V0.2.3).
+            pipeline: result.meta.postProcessing.pipeline,
+            gridScale: result.meta.postProcessing.grid?.scaleX ?? null,
+            gridFidelity: result.meta.postProcessing.grid?.stats.fidelity ?? null,
+            blockMethod: result.meta.postProcessing.grid?.method ?? null,
+            fallbackReason: result.meta.postProcessing.fallbackReason,
           }
         : null,
       settings: {
@@ -141,7 +147,10 @@ export function ResultCard({
 
       {result.meta.postProcessing !== null ? (
         <div className="mt-3">
-          <PixelMetricsPanel metrics={result.meta.postProcessing.metrics} />
+          <PixelMetricsPanel
+            metrics={result.meta.postProcessing.metrics}
+            report={result.meta.postProcessing}
+          />
         </div>
       ) : null}
 

@@ -59,7 +59,20 @@ export function SpritePreview({
             alt={`${alt} — agrandi ${zoom} fois`}
             width={width * zoom}
             height={height * zoom}
-            style={{ width: width * zoom, height: height * zoom, maxWidth: "100%" }}
+            /*
+             * `maxWidth: none` est indispensable : la préflight Tailwind impose
+             * `img { max-width: 100% }`, ce qui écrasait la largeur sans toucher
+             * à la hauteur — un sprite carré s'affichait alors en 298 × 512,
+             * donc déformé. L'agrandissement reste exactement ×N et c'est le
+             * conteneur qui défile sur écran étroit : un aperçu à faire défiler
+             * vaut mieux qu'un aperçu qui ment sur les proportions.
+             */
+            style={{
+              width: width * zoom,
+              height: height * zoom,
+              maxWidth: "none",
+              flexShrink: 0,
+            }}
             className="[image-rendering:pixelated]"
           />
         </div>

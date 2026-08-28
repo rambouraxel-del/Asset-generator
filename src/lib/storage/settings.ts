@@ -15,6 +15,7 @@ const SETTINGS_KEY = "asset-generator:settings";
 export const DEFAULT_SETTINGS: GenerationSettings = {
   ...DEFAULT_GENERATION_SETTINGS,
   qualityMode: "auto",
+  pixelPipeline: "grid",
 };
 
 export function loadSettings(): GenerationSettings {

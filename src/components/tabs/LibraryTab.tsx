@@ -171,6 +171,28 @@ function AssetDetail({
         />
         {asset.metrics ? (
           <>
+            <Row
+              label="Mode pixel art"
+              value={
+                asset.metrics.pipeline === "grid" ? "grille native" : "nettoyage classique"
+              }
+            />
+            {asset.metrics.gridScale ? (
+              <Row label="Grille logique" value={`×${asset.metrics.gridScale}`} />
+            ) : null}
+            {asset.metrics.gridFidelity !== null &&
+            asset.metrics.gridFidelity !== undefined ? (
+              <Row
+                label="Fidélité de grille"
+                value={`${Math.round(asset.metrics.gridFidelity * 100)} %`}
+              />
+            ) : null}
+            {asset.metrics.blockMethod ? (
+              <Row label="Lecture de bloc" value={asset.metrics.blockMethod} />
+            ) : null}
+            {asset.metrics.fallbackReason ? (
+              <Row label="Repli" value={asset.metrics.fallbackReason} />
+            ) : null}
             <Row label="Couleurs" value={String(asset.metrics.colourCount)} />
             <Row label="Niveaux d'alpha" value={String(asset.metrics.alphaLevelCount)} />
             <Row label="Qualité pixel-art" value={asset.metrics.verdict} />

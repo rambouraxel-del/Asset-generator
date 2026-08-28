@@ -58,6 +58,24 @@ export const PROMPT_TEMPLATE = {
   pixelArtNotice:
     "Dessine un véritable sprite pixel-art natif, conçu pour cette grille : aplats de couleur francs, contours nets, palette restreinte. Évite les dégradés mous, les détails sous-pixel, le flou et l'aspect illustration réduite.",
 
+  /*
+   * Bloc de grille logique (V0.2.3).
+   *
+   * C'est le changement de philosophie de cette version : au lieu de laisser le
+   * modèle dessiner librement puis de rattraper le tir, on lui demande de
+   * composer directement sur la grille du sprite final. Le texte est généré
+   * dynamiquement à partir du facteur réellement calculé, et n'est ajouté que
+   * lorsque la grille est exploitable — pas de paragraphe inutile sinon.
+   */
+  logicalGridHeading: "GRILLE LOGIQUE :",
+  logicalGridConstraints: [
+    "Dessine comme si tu créais directement le sprite à sa taille finale, puis agrandissais chaque pixel en carré plein, sans interpolation.",
+    "Chaque pixel logique doit être un bloc parfaitement uniforme.",
+    "Aucun détail plus petit qu'un pixel logique.",
+    "Aucun dégradé entre pixels logiques, aucun anti-aliasing, aucun contour flou.",
+    "Aucune texture haute résolution, aucun micro-détail.",
+  ],
+
   dimensionsHeading: "CONTRAINTES DIMENSIONNELLES :",
   /**
    * Distinction essentielle : la dimension cible décrit l'emprise de l'objet
@@ -105,6 +123,11 @@ export interface AssetPromptInput {
    */
   finalWidth?: number | null;
   finalHeight?: number | null;
+  /**
+   * Facteur de la grille logique : nombre de pixels générés par pixel final.
+   * `null` quand la grille n'est pas exploitable — le bloc est alors omis.
+   */
+  logicalGridScale?: number | null;
   /** Nombre de références effectivement jointes à cet appel. */
   referenceCount: number;
   /** Mode de fond demandé : ajoute une consigne explicite. */
@@ -146,6 +169,15 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
     blocks.push(`${PROMPT_TEMPLATE.finalSizeHeading}\n${finalSize}`);
   }
 
+  const logicalGrid = buildLogicalGridBlock(
+    input.finalWidth ?? null,
+    input.finalHeight ?? null,
+    input.logicalGridScale ?? null,
+  );
+  if (logicalGrid !== null) {
+    blocks.push(`${PROMPT_TEMPLATE.logicalGridHeading}\n${logicalGrid}`);
+  }
+
   const dimensions = buildDimensionsBlock(
     input.targetWidth ?? null,
     input.targetHeight ?? null,
@@ -166,6 +198,29 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
   blocks.push(`${PROMPT_TEMPLATE.constraintsHeading}\n${constraints.join("\n")}`);
 
   return blocks.join("\n\n");
+}
+
+/**
+ * Bloc de grille logique, ou `null` si la grille n'est pas exploitable.
+ *
+ * Le texte annonce le facteur réel : pour un sprite de 64 × 64 rendu en
+ * 832 × 832, chaque pixel final correspond à un bloc de 13 × 13. C'est cette
+ * correspondance explicite qui pousse le modèle à composer sur la grille au
+ * lieu de produire une illustration détaillée.
+ */
+function buildLogicalGridBlock(
+  width: number | null,
+  height: number | null,
+  scale: number | null,
+): string | null {
+  if (width === null || height === null) return null;
+  if (scale === null || !Number.isInteger(scale) || scale < 2) return null;
+
+  return [
+    `L'image générée représente une grille logique de ${width} × ${height} pixels.`,
+    `Chaque pixel logique correspond à un bloc uniforme de ${scale} × ${scale} pixels dans l'image générée.`,
+    ...PROMPT_TEMPLATE.logicalGridConstraints,
+  ].join("\n");
 }
 
 /**

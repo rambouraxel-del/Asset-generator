@@ -1,4 +1,4 @@
-# Asset Generator — V0.2.2
+# Asset Generator — V0.2.3
 
 Web-app de génération d'**assets graphiques cohérents pour jeu vidéo**, à partir
 de l'API OpenAI GPT Image.
@@ -47,6 +47,53 @@ Les deux familles d'images ne peuvent pas être confondues, à trois niveaux :
 
 Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 [`library.test.ts`](tests/library.test.ts) verrouillent ces trois barrières.
+
+## Nouveautés de la V0.2.3
+
+**Objectif : que le modèle compose sur la grille du sprite, au lieu qu'on
+rattrape le tir après coup.**
+
+La V0.2.2 nettoyait très bien une illustration réduite — mais elle restait un
+filet de sécurité. La V0.2.3 change de philosophie : le prompt demande au modèle
+un sprite de N × M pixels dont **chaque pixel est un bloc uniforme** dans
+l'image générée, et la réduction devient une lecture bloc par bloc.
+
+```
+sprite logique 64 × 64
+   ↓  le modèle agrandit chaque pixel en bloc de 13 × 13
+image générée 832 × 832
+   ↓  lecture bloc par bloc
+sprite final 64 × 64
+```
+
+- **Résolutions alignées** — la sélection privilégie un facteur entier et
+  identique sur les deux axes, sous plafond de coût.
+- **Lecture bloc par bloc** — un bloc source donne un pixel final, sans mélange.
+- **Score de fidélité** — mesure si le modèle a *réellement* respecté la grille.
+- **Palette adaptative** — 12 couleurs à 16 px, 48 à 128 px.
+- **Repli automatique** — la chaîne V0.2.2 reprend la main dès que la grille
+  n'est pas applicable.
+
+### Comparatif mesuré (sprite 64 × 64, source 832 × 832)
+
+| Source | Pipeline | Silhouette | Couleurs | Alphas | Fidélité |
+| --- | --- | --- | --- | --- | --- |
+| grille respectée | classique | 73,8 % | 32 | 2 | — |
+| grille respectée | **grille** | **100 %** | 29 | 2 | 100 % |
+| grille texturée | classique | 73,8 % | 32 | 2 | — |
+| grille texturée | **grille** | **100 %** | 32 | 2 | 54 % |
+| illustration lisse | classique | 59,9 % | 32 | 2 | — |
+| illustration lisse | **grille** | **100 %** | 32 | 2 | 40 % |
+
+La « silhouette » mesure la concordance entre le sprite livré et ce que le
+modèle a réellement dessiné, bloc par bloc. La chaîne classique détoure puis
+remet à l'échelle pour remplir l'emprise : elle déplace donc l'asset et perd la
+composition voulue. La grille la reproduit exactement. Les deux pipelines
+gardent la même propreté de palette et d'alpha — le nettoyage V0.2.2 s'applique
+dans les deux cas.
+
+Ce comparatif est un test :
+[`benchmarkPipelines.test.ts`](tests/benchmarkPipelines.test.ts).
 
 ## Nouveautés de la V0.2.2
 
@@ -117,7 +164,7 @@ un seul jeton supplémentaire**.
 | **`pngjs`** | Codec PNG **pur JavaScript, sans dépendance ni binaire natif** : aucune surprise en environnement serverless, et 712 Ko seulement. Absent du bundle client. |
 | **Aucune dépendance d'image** | Opérations pixel, quantification (découpage médian) et métriques écrites à la main : la promesse « aucun lissage » reste vérifiable ligne à ligne, et aucune mise à jour ne peut réactiver une interpolation par mégarde. |
 | **Zod** | Validation des entrées côté serveur, source de vérité unique. |
-| **Vitest + fake-indexeddb** | 201 tests, dont la vraie migration IndexedDB v1 → v2 et toute la chaîne de nettoyage sur de vrais PNG. |
+| **Vitest + fake-indexeddb** | 236 tests, dont la vraie migration IndexedDB v1 → v2, la chaîne de nettoyage sur de vrais PNG et le comparatif des deux pipelines. |
 
 ## Prérequis
 
@@ -269,6 +316,51 @@ Le mode `nearest` strict reste disponible et testé
 final et les aperçus zoomés restent, eux, de pures recopies de pixels : aucune
 interpolation ne peut s'y glisser.
 
+### Grille logique
+
+`chooseGenerationSize` note chaque résolution candidate
+([`scoreGenerationSize`](src/lib/generation/generationSizing.ts)) : la qualité
+de grille domine, le coût et l'écart de rapport départagent, et un plafond de
+surcoût écarte les candidats déraisonnables.
+
+| Taille finale | Résolution retenue | Grille | Surcoût |
+| --- | --- | --- | --- |
+| 16 × 16 | 816 × 816 | ×51 | +0 % |
+| 32 × 32 | 832 × 832 | ×26 | +4 % |
+| 48 × 48 | 816 × 816 | ×17 | +0 % |
+| 64 × 64 | 832 × 832 | ×13 | +4 % |
+| 64 × 96 | 704 × 1056 | ×11 | +10 % |
+| 128 × 128 | 896 × 896 | ×7 | +21 % |
+| 100 × 75 | — | aucune | +189 % → repli |
+
+Le plafond dépend du mode qualité (éco 1,25× · standard 1,6× · haute 2×) :
+« éco » doit rester éco. Il couvre toutes les tailles visées tout en refusant
+de payer +57 % pour aligner un 512 × 512 en mode éco.
+
+**Alignement.** Aucun recadrage n'a lieu avant la grille : il décalerait toutes
+les bornes de bloc. Comme la résolution vaut exactement `finalWidth × k`, la
+lecture bloc par bloc produit directement les dimensions finales — ni crop, ni
+mise à l'échelle, ni centrage. Le recentrage éventuel intervient **après**, sur
+le sprite final, par translation entière de pixels déjà calculés.
+
+**Fidélité de grille.** Un critère absolu ne suffirait pas : à ×13, une
+illustration lisse a elle aussi des blocs presque plats. Mesuré :
+
+| | écart interne | contraste entre blocs |
+| --- | --- | --- |
+| grille respectée | 0,00 | 68,6 |
+| illustration lisse | 2,25 | 7,0 |
+
+C'est le **rapport** qui les sépare : un vrai pixel logique est plat devant le
+saut qui le sépare de ses voisins. La fidélité mesure la part de blocs
+satisfaisant ce critère — 100 % sur une grille respectée, 40 % sur une
+illustration lisse, 100 % sur un aplat uni.
+
+**Repli.** La chaîne V0.2.2 reprend la main dans quatre cas : mode classique
+choisi, aucun facteur entier possible, dimensions inattendues, ou sprite vide
+en grille — ce dernier cas couvre un asset plus petit qu'un bloc, qui se
+diluerait dans la moyenne d'alpha et disparaîtrait.
+
 ### Chaîne Pixel Cleanup
 
 Trois traitements, dans cet ordre précis
@@ -277,7 +369,7 @@ Trois traitements, dans cet ordre précis
 | Étape | Rôle | Réglages par défaut |
 | --- | --- | --- |
 | **Alpha** | efface la poussière invisible, supprime les halos quasi opaques, ramène les contours sur des paliers francs | efface < 24, opacifie > 200, 2 paliers |
-| **Palette** | réduit aux teintes structurantes par découpage médian | 32 couleurs max, ignoré sous 24 |
+| **Palette** | réduit aux teintes structurantes par découpage médian | plafond adaptatif : 12 couleurs à 16 px, 48 à 128 px |
 | **Pixels isolés** | retire les éclats sans aucun voisin visible | actif |
 
 L'ordre compte : nettoyer l'alpha d'abord évite de faire entrer dans la palette
@@ -445,15 +537,16 @@ src/
 │   ├── pricing.ts                  Estimation de coût (isolée, sans tarif figé)
 │   ├── generation/
 │   │   ├── payload.ts              Point de passage obligé vers l'API
-│   │   ├── generationSizing.ts     Choix automatique de la résolution GPT
+│   │   ├── generationSizing.ts     Résolution GPT + score de grille
 │   │   └── qualityMode.ts          Modes qualité et politique de coût
 │   ├── image/
 │   │   ├── pixels.ts               Opérations pixel (nearest, moyenne de zone)
+│   │   ├── logicalGrid.ts          Lecture bloc par bloc + fidélité
 │   │   ├── alphaCleanup.ts         Seuils d'alpha, pixels isolés
-│   │   ├── paletteQuantization.ts  Découpage médian
+│   │   ├── paletteQuantization.ts  Découpage médian + palette adaptative
 │   │   ├── pixelCleanup.ts         Orchestration de la chaîne
 │   │   ├── pixelMetrics.ts         Mesures et verdict
-│   │   └── postProcessing.ts       Chaîne complète vers la taille finale
+│   │   └── postProcessing.ts       Pipeline grille + repli classique
 │   ├── prompt/assetPrompt.ts       Construction du prompt (point d'extension)
 │   ├── openai/                     Client (server-only) + appel Images
 │   ├── validation/                 Texte (Zod), résolution, signature d'image
@@ -462,7 +555,7 @@ src/
 ├── types/
 │   ├── domain.ts                   StyleReference ≠ GeneratedAsset
 │   └── api.ts                      Contrat navigateur ↔ serveur
-tests/                              201 tests
+tests/                              236 tests
 ```
 
 ## Sécurité
@@ -475,10 +568,10 @@ tests/                              201 tests
 - Messages d'erreur lisibles côté client ; détails techniques uniquement dans la
   console serveur — jamais la clé, jamais le prompt, jamais le base64 complet.
 
-## Volontairement absent de la V0.2.2
+## Volontairement absent de la V0.2.3
 
 Comptes utilisateurs, authentification, synchronisation cloud, base distante,
 sélection automatique des références par IA, RAG, mémoire, apprentissage,
-fine-tuning, validation visuelle par IA, palette fixe par Style Pack,
+fine-tuning, validation visuelle par IA, palette globale par Style Pack,
 spritesheets, animations, génération par lots, export/import, éditeur
-d'ancrage, suppression d'arrière-plan par un second modèle.
+d'ancrage, contour automatique, correction par un second appel GPT.

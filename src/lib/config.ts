@@ -110,6 +110,8 @@ export const DEFAULT_GENERATION_SETTINGS = {
   finalWidth: 64,
   finalHeight: 64,
   qualityMode: "auto" as string,
+  /** Grille native par défaut : c'est le mode qui produit de vrais sprites. */
+  pixelPipeline: "grid" as string,
 
   /** Régime hérité : « auto », un preset, ou « LARGEURxHAUTEUR ». */
   size: "1024x1024" as string,
@@ -199,6 +201,102 @@ export const PIXEL_CLEANUP = {
   /** Supprime les pixels visibles sans aucun voisin visible (bruit résiduel). */
   REMOVE_ISOLATED_PIXELS: true,
 } as const;
+
+/**
+ * Réglages de la grille logique (V0.2.3).
+ *
+ * ---------------------------------------------------------------------------
+ * L'IDÉE
+ * ---------------------------------------------------------------------------
+ * Plutôt que de laisser le modèle dessiner librement en haute résolution puis
+ * de rattraper le tir, on lui demande de composer DÈS LE DÉPART sur une grille
+ * logique : pour un sprite de 64 × 64 rendu en 832 × 832, chaque pixel final
+ * correspond à un bloc de 13 × 13 pixels générés, censé être uniforme.
+ *
+ * La réduction devient alors une lecture bloc par bloc, exacte et sans
+ * ambiguïté, au lieu d'un rééchantillonnage qui doit deviner.
+ * ---------------------------------------------------------------------------
+ */
+export const LOGICAL_GRID = {
+  /**
+   * Surcoût maximal accepté pour obtenir une grille entière, rapporté à la
+   * résolution la moins chère qui conviendrait sans grille.
+   *
+   * Mesuré sur les tailles visées : 16×16 et 48×48 ne coûtent rien de plus,
+   * 32×32 et 64×64 coûtent +4 %, 64×96 +10 %, 128×128 +21 %. Une taille
+   * bâtarde comme 100×75 exigerait +189 % — le repli s'y déclenche.
+   *
+   * Le plafond dépend du mode qualité : « éco » doit rester éco. Avec 1,25 il
+   * couvre encore toutes les tailles visées (le pire cas, 128×128, coûte
+   * +21 %) tout en refusant de payer +57 % pour aligner un 512×512.
+   */
+  MAX_COST_RATIO: { eco: 1.25, standard: 1.6, high: 2 } as Record<string, number>,
+
+  /** Poids du score. La grille domine, le coût et le ratio corrigent. */
+  WEIGHTS: {
+    /** Grille entière ET identique sur les deux axes : le cas idéal. */
+    UNIFORM_INTEGER: 100,
+    /** Grille entière mais de facteurs différents en X et Y. */
+    NON_UNIFORM_INTEGER: 60,
+    /** Un seul axe tombe juste. */
+    PARTIAL_INTEGER: 25,
+    /** Pénalité par unité de surcoût (1,5× le coût mini => −40 × 0,5 = −20). */
+    COST: 40,
+    /** Pénalité par unité d'écart de rapport (2 % d'écart => −4). */
+    ASPECT: 200,
+  },
+
+  /**
+   * Critères de cohérence d'un bloc, calibrés sur mesures.
+   *
+   * Un écart absolu ne suffit pas à distinguer les deux cas : à ×13, une
+   * illustration lisse a elle aussi des blocs presque plats. Mesuré :
+   *
+   *   grille respectée   — écart interne 0,00 · contraste entre blocs 68,6
+   *   illustration lisse — écart interne 2,25 · contraste entre blocs  7,0
+   *
+   * Ce qui sépare vraiment les deux est le RAPPORT : un vrai pixel logique est
+   * plat par rapport au saut qui le sépare de ses voisins ; une tranche de
+   * dégradé varie presque autant à l'intérieur qu'à sa frontière.
+   */
+  BLOCK_COHERENCE: {
+    /** Écart interne au-delà duquel un bloc est rejeté quoi qu'il arrive. */
+    ABSOLUTE_TOLERANCE: 24,
+    /** Écart interne toujours accepté : une zone réellement plate. */
+    FLAT_EPSILON: 2,
+    /** Part du contraste avec les voisins que l'écart interne peut atteindre. */
+    RELATIVE_FACTOR: 0.15,
+  },
+
+  /** Seuils du libellé de fidélité de grille, en proportion de blocs cohérents. */
+  FIDELITY_THRESHOLDS: { GOOD: 0.85, FAIR: 0.6 },
+
+  /**
+   * Méthode de réduction d'un bloc vers un pixel.
+   * Comparée par test : `dominant` conserve les aplats d'un modèle qui respecte
+   * la grille, `premultipliedMean` est plus stable quand il ne la respecte pas.
+   */
+  BLOCK_METHOD: "dominant" as "dominant" | "premultipliedMean" | "median",
+
+  /** Recentre le sprite final par translation entière (aucun rééchantillonnage). */
+  RECENTRE_FINAL: true,
+} as const;
+
+/**
+ * Plafond de couleurs adapté à la taille finale.
+ *
+ * Un sprite de 16 × 16 n'a que ~200 pixels visibles : lui laisser 32 couleurs
+ * produit un rendu inutilement riche — c'est la limite relevée en V0.2.2. La
+ * table ci-dessous est interpolée linéairement sur le plus grand côté ; elle
+ * est volontairement simple et modifiable d'un seul endroit.
+ */
+export const ADAPTIVE_PALETTE = [
+  { edge: 16, colours: 12 },
+  { edge: 32, colours: 20 },
+  { edge: 48, colours: 24 },
+  { edge: 64, colours: 32 },
+  { edge: 128, colours: 48 },
+] as const;
 
 /** Facteur du second aperçu, destiné à juger la netteté pixel par pixel. */
 export const PREVIEW_ZOOM_FACTOR = 8;

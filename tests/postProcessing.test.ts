@@ -3,6 +3,12 @@
  *
  * C'est le test qui garantit la promesse produit : « je demande 16 × 16, je
  * reçois un PNG de 16 × 16 exploitable, sans lissage et sans asset coupé ».
+ *
+ * Depuis la V0.2.3, le pipeline par défaut est la grille logique. Les tests
+ * qui portent spécifiquement sur le comportement de la chaîne classique
+ * (détourage, mise à l'échelle pour remplir l'emprise) le demandent
+ * explicitement — la grille, elle, ne recadre ni ne redimensionne, par
+ * construction.
  */
 
 import { describe, expect, it } from "vitest";
@@ -119,6 +125,7 @@ describe("postProcessToFinalSize — détourage", () => {
     const { report } = postProcessToFinalSize(renderDisc(800, 800, 0.25), {
       finalWidth: 32,
       finalHeight: 32,
+      pipeline: "classic",
     });
 
     expect(report.trimmed).toBe(true);
@@ -139,6 +146,7 @@ describe("postProcessToFinalSize — détourage", () => {
     const { buffer } = postProcessToFinalSize(source, {
       finalWidth: 32,
       finalHeight: 32,
+      pipeline: "classic",
     });
 
     const decoded = decodePng(buffer);
@@ -157,6 +165,7 @@ describe("postProcessToFinalSize — détourage", () => {
     const { report } = postProcessToFinalSize(encodePng(image), {
       finalWidth: 16,
       finalHeight: 16,
+      pipeline: "classic",
     });
 
     expect(report.trimmed).toBe(false);
@@ -177,6 +186,7 @@ describe("postProcessToFinalSize — asset entier et non déformé", () => {
     const { buffer, report } = postProcessToFinalSize(source, {
       finalWidth: 32,
       finalHeight: 32,
+      pipeline: "classic",
     });
 
     expect(report.scaledWidth).toBeLessThanOrEqual(32);
@@ -202,6 +212,7 @@ describe("postProcessToFinalSize — asset entier et non déformé", () => {
     const { report } = postProcessToFinalSize(source, {
       finalWidth: 64,
       finalHeight: 64,
+      pipeline: "classic",
     });
 
     expect(report.scaledWidth / report.scaledHeight).toBeCloseTo(2, 1);
@@ -220,6 +231,7 @@ describe("postProcessToFinalSize — asset entier et non déformé", () => {
         finalWidth: 32,
         finalHeight: 32,
         anchor: "bottom-center",
+        pipeline: "classic",
       }).buffer,
     );
 
@@ -273,6 +285,9 @@ describe("postProcessToFinalSize — cas limites", () => {
   });
 
   it("ne fait pas disparaître un asset minuscule", () => {
+    // Un motif de 2 × 2 pixels dans une source de 816 × 816 est plus petit
+    // qu'un bloc de grille (51 × 51) : il se diluerait dans la moyenne
+    // d'alpha. Le repli automatique doit le sauver.
     const source = renderOffsetRect(816, 816, {
       left: 400,
       top: 400,
@@ -280,10 +295,15 @@ describe("postProcessToFinalSize — cas limites", () => {
       height: 2,
     });
 
-    const decoded = decodePng(
-      postProcessToFinalSize(source, { finalWidth: 16, finalHeight: 16 }).buffer,
-    );
+    const { buffer, report } = postProcessToFinalSize(source, {
+      finalWidth: 16,
+      finalHeight: 16,
+    });
 
+    expect(report.pipeline).toBe("classic");
+    expect(report.fallbackReason).toBe("sprite-vide-en-grille");
+
+    const decoded = decodePng(buffer);
     let visible = 0;
     for (let index = 3; index < decoded.data.length; index += 4) {
       if (decoded.data[index] > 0) visible += 1;

@@ -119,6 +119,17 @@ export interface GeneratedAssetMetrics {
   alphaLevelCount: number;
   semiTransparentPixels: number;
   verdict: string;
+  /* ---- Grille logique (V0.2.3) ---------------------------------------- */
+  /** Pipeline réellement appliqué : `grid` ou `classic`. */
+  pipeline?: string | null;
+  /** Facteur de la grille logique, `null` en pipeline classique. */
+  gridScale?: number | null;
+  /** Part de blocs cohérents, entre 0 et 1. */
+  gridFidelity?: number | null;
+  /** Méthode de lecture de bloc employée. */
+  blockMethod?: string | null;
+  /** Raison du repli, `null` si la grille a bien été appliquée. */
+  fallbackReason?: string | null;
 }
 
 /** Réglages ayant produit un asset, conservés pour pouvoir les relire. */

@@ -1,6 +1,6 @@
 {
   "name": "asset-generator",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Générateur d'assets graphiques cohérents pour jeu vidéo, basé sur l'API OpenAI GPT Image.",
   "scripts": {

@@ -208,6 +208,7 @@ export function translateOpenAIError(error: unknown): AppError {
 function buildMockImage(model: string, size: string): GeneratedImage {
   const { width, height } = parseMockSize(size);
   const image = createTransparentImage(width, height);
+  void MOCK_NOTE;
 
   const centreX = width / 2;
   const centreY = height / 2;
@@ -245,6 +246,14 @@ function buildMockImage(model: string, size: string): GeneratedImage {
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
+
+/**
+ * Le PNG de test reste volontairement une illustration LISSE, c'est-à-dire le
+ * cas où le modèle ignore la grille logique. C'est le scénario défavorable :
+ * le mode maquette exerce ainsi le repli et le nettoyage, et une fidélité de
+ * grille faible y est le comportement ATTENDU, pas un défaut.
+ */
+const MOCK_NOTE = "illustration lisse : cas défavorable volontaire";
 
 /** Dimensions du PNG de test. « auto » retombe sur un carré standard. */
 function parseMockSize(size: string): { width: number; height: number } {

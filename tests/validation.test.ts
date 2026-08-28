@@ -23,6 +23,7 @@ const VALID_INPUT = {
   finalWidth: 32,
   finalHeight: 32,
   qualityMode: "auto",
+  pixelPipeline: "grid",
 };
 
 function png(byteLength = 32): Uint8Array {
@@ -123,6 +124,12 @@ describe("parseGenerationInput", () => {
       finalHeight: 24,
     });
     expect(parsed.finalWidth).toBe(24);
+  });
+
+  it("rejette un mode pixel art inconnu", () => {
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, pixelPipeline: "magique" }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_REQUEST" }));
   });
 
   it("rejette un mode qualité inconnu", () => {

@@ -19,7 +19,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { SIZE_CONSTRAINTS } from "@/lib/config";
+import { LOGICAL_GRID, SIZE_CONSTRAINTS } from "@/lib/config";
 import {
   SUPERSAMPLING_FACTORS,
   type ResolvedQualityMode,
@@ -39,6 +39,76 @@ export interface GenerationSizeChoice {
   downscaleFactor: number;
   /** `true` si aucune résolution valide plus petite n'existait. */
   minimal: boolean;
+
+  /* ---- Grille logique (V0.2.3) ---------------------------------------- */
+
+  /** Nombre de pixels générés par pixel final, en largeur puis en hauteur. */
+  scaleX: number;
+  scaleY: number;
+  /** `true` si les deux facteurs sont entiers. */
+  integerScale: boolean;
+  /** `true` si les deux facteurs sont identiques. */
+  uniformScale: boolean;
+  /**
+   * `true` si la résolution permet une vraie grille logique : facteurs entiers
+   * ET identiques. C'est la condition d'entrée du pipeline Pixel Grid.
+   */
+  logicalGridReady: boolean;
+  /** Surcoût par rapport à la résolution la moins chère acceptable. */
+  costRatio: number;
+  /** Détail du score, pour comprendre pourquoi ce candidat a été retenu. */
+  score: SizeScoreBreakdown;
+}
+
+/** Candidat de résolution, avant notation. */
+export interface SizeCandidate {
+  width: number;
+  height: number;
+  area: number;
+  scaleX: number;
+  scaleY: number;
+  integerScale: boolean;
+  uniformScale: boolean;
+  aspectError: number;
+  costRatio: number;
+}
+
+/** Décomposition du score, pour rendre le choix explicable. */
+export interface SizeScoreBreakdown {
+  /** Prime liée à la qualité de la grille logique. */
+  grid: number;
+  /** Pénalité de coût (négative). */
+  cost: number;
+  /** Pénalité d'écart de rapport (négative). */
+  aspect: number;
+  total: number;
+}
+
+/**
+ * Note un candidat de résolution.
+ *
+ * La grille logique domine volontairement le score : c'est l'apport de la
+ * V0.2.3. Le coût et l'écart de rapport ne servent qu'à départager, et un
+ * plafond de surcoût (`LOGICAL_GRID.MAX_COST_RATIO`) écarte de toute façon les
+ * candidats déraisonnables avant même la notation — on ne paie pas trois fois
+ * le prix pour une grille parfaite.
+ */
+export function scoreGenerationSize(candidate: SizeCandidate): SizeScoreBreakdown {
+  const weights = LOGICAL_GRID.WEIGHTS;
+
+  const grid =
+    candidate.integerScale && candidate.uniformScale
+      ? weights.UNIFORM_INTEGER
+      : candidate.integerScale
+        ? weights.NON_UNIFORM_INTEGER
+        : Number.isInteger(candidate.scaleX) || Number.isInteger(candidate.scaleY)
+          ? weights.PARTIAL_INTEGER
+          : 0;
+
+  const cost = -weights.COST * Math.max(0, candidate.costRatio - 1);
+  const aspect = -weights.ASPECT * candidate.aspectError;
+
+  return { grid, cost, aspect, total: grid + cost + aspect };
 }
 
 /**
@@ -79,10 +149,7 @@ export function chooseGenerationSize(
   const targetRatio = finalWidth / finalHeight;
 
   // Un rapport hors des limites du modèle n'est pas rattrapable.
-  if (
-    Math.max(targetRatio, 1 / targetRatio) >
-    SIZE_CONSTRAINTS.MAX_ASPECT_RATIO
-  ) {
+  if (Math.max(targetRatio, 1 / targetRatio) > SIZE_CONSTRAINTS.MAX_ASPECT_RATIO) {
     return null;
   }
 
@@ -92,62 +159,174 @@ export function chooseGenerationSize(
   const minWidth = finalWidth * factor;
   const minHeight = finalHeight * factor;
 
+  // Référence de coût : la plus petite résolution acceptable, c'est-à-dire le
+  // choix qu'aurait fait la V0.2.2.
+  const cheapest = findCheapestValid(targetRatio, minWidth, minHeight);
+  if (cheapest === null) return null;
+
+  const candidates = collectCandidates({
+    finalWidth,
+    finalHeight,
+    targetRatio,
+    minWidth,
+    minHeight,
+    referenceArea: cheapest.area,
+    maxCostRatio: LOGICAL_GRID.MAX_COST_RATIO[qualityMode] ?? 1.6,
+  });
+
+  let best: { candidate: SizeCandidate; score: SizeScoreBreakdown } | null = null;
+  for (const candidate of candidates) {
+    const score = scoreGenerationSize(candidate);
+    if (best === null || score.total > best.score.total) best = { candidate, score };
+  }
+
+  if (best === null) return null;
+
+  const { candidate, score } = best;
+  return {
+    width: candidate.width,
+    height: candidate.height,
+    size: `${candidate.width}x${candidate.height}`,
+    aspectRatio: candidate.width / candidate.height,
+    aspectError: candidate.aspectError,
+    downscaleFactor: candidate.scaleX,
+    minimal: candidate.area <= cheapest.area,
+    scaleX: candidate.scaleX,
+    scaleY: candidate.scaleY,
+    integerScale: candidate.integerScale,
+    uniformScale: candidate.uniformScale,
+    logicalGridReady: candidate.integerScale && candidate.uniformScale,
+    costRatio: candidate.costRatio,
+    score,
+  };
+}
+
+/**
+ * Rassemble les candidats à noter : d'une part la résolution la moins chère au
+ * bon rapport (le repli sûr), d'autre part les résolutions à grille entière,
+ * tant qu'elles restent sous le plafond de surcoût.
+ */
+function collectCandidates(input: {
+  finalWidth: number;
+  finalHeight: number;
+  targetRatio: number;
+  minWidth: number;
+  minHeight: number;
+  referenceArea: number;
+  maxCostRatio: number;
+}): SizeCandidate[] {
+  const {
+    finalWidth,
+    finalHeight,
+    targetRatio,
+    minWidth,
+    minHeight,
+    referenceArea,
+    maxCostRatio,
+  } = input;
+
+  const candidates: SizeCandidate[] = [];
+  const seen = new Set<string>();
+
+  const add = (width: number, height: number): void => {
+    const key = `${width}x${height}`;
+    if (seen.has(key)) return;
+    if (!isValidResolution(width, height)) return;
+    if (width < minWidth || height < minHeight) return;
+
+    const ratio = width / height;
+    const aspectError = Math.abs(ratio - targetRatio) / targetRatio;
+    if (aspectError > MAX_ASPECT_ERROR) return;
+
+    const area = width * height;
+    const costRatio = area / referenceArea;
+    // Le repli (coût 1,00) passe toujours : un choix doit rester possible.
+    if (costRatio > maxCostRatio && costRatio > 1) return;
+
+    const scaleX = width / finalWidth;
+    const scaleY = height / finalHeight;
+
+    seen.add(key);
+    candidates.push({
+      width,
+      height,
+      area,
+      scaleX,
+      scaleY,
+      integerScale: Number.isInteger(scaleX) && Number.isInteger(scaleY),
+      uniformScale: scaleX === scaleY,
+      aspectError,
+      costRatio,
+    });
+  };
+
+  // 1. Grilles uniformes : (finalWidth × k, finalHeight × k).
+  for (let k = 1; finalWidth * k <= SIZE_CONSTRAINTS.MAX_EDGE; k += 1) {
+    const width = finalWidth * k;
+    const height = finalHeight * k;
+    if (height > SIZE_CONSTRAINTS.MAX_EDGE) break;
+    if (width * height > SIZE_CONSTRAINTS.MAX_TOTAL_PIXELS) break;
+    add(width, height);
+  }
+
+  // 2. Grilles entières non uniformes : facteurs différents en X et Y.
+  for (let kx = 1; finalWidth * kx <= SIZE_CONSTRAINTS.MAX_EDGE; kx += 1) {
+    const width = finalWidth * kx;
+    for (const ky of [kx - 1, kx, kx + 1]) {
+      if (ky < 1) continue;
+      const height = finalHeight * ky;
+      if (height > SIZE_CONSTRAINTS.MAX_EDGE) continue;
+      add(width, height);
+    }
+  }
+
+  // 3. Repli : la résolution la moins chère au bon rapport, sans contrainte de
+  //    grille. Toujours présente, pour qu'un choix reste possible.
+  const cheapest = findCheapestValid(targetRatio, minWidth, minHeight);
+  if (cheapest !== null) add(cheapest.width, cheapest.height);
+
+  return candidates;
+}
+
+/** Plus petite résolution valide respectant le rapport demandé. */
+function findCheapestValid(
+  targetRatio: number,
+  minWidth: number,
+  minHeight: number,
+): { width: number; height: number; area: number } | null {
   const step = SIZE_CONSTRAINTS.MULTIPLE_OF;
-  let best: GenerationSizeChoice | null = null;
+  let best: { width: number; height: number; area: number } | null = null;
 
   for (let width = step; width <= SIZE_CONSTRAINTS.MAX_EDGE; width += step) {
-    // Hauteur idéale pour ce rapport, ramenée au multiple de 16 le plus proche.
-    const idealHeight = width / targetRatio;
-    for (const height of nearbyMultiples(idealHeight, step)) {
-      if (height <= 0 || height > SIZE_CONSTRAINTS.MAX_EDGE) continue;
+    for (const height of nearbyMultiples(width / targetRatio, step)) {
+      if (height <= 0 || !isValidResolution(width, height)) continue;
       if (width < minWidth || height < minHeight) continue;
 
-      const totalPixels = width * height;
-      if (totalPixels < SIZE_CONSTRAINTS.MIN_TOTAL_PIXELS) continue;
-      if (totalPixels > SIZE_CONSTRAINTS.MAX_TOTAL_PIXELS) continue;
-
       const ratio = width / height;
-      if (Math.max(ratio, 1 / ratio) > SIZE_CONSTRAINTS.MAX_ASPECT_RATIO) continue;
+      if (Math.abs(ratio - targetRatio) / targetRatio > MAX_ASPECT_ERROR) continue;
 
-      const aspectError = Math.abs(ratio - targetRatio) / targetRatio;
-      if (aspectError > MAX_ASPECT_ERROR) continue;
-
-      const candidate: GenerationSizeChoice = {
-        width,
-        height,
-        size: `${width}x${height}`,
-        aspectRatio: ratio,
-        aspectError,
-        downscaleFactor: width / finalWidth,
-        minimal: true,
-      };
-
-      if (isBetter(candidate, best)) best = candidate;
+      const area = width * height;
+      if (best === null || area < best.area) best = { width, height, area };
     }
-
-    // Les largeurs croissent : dès qu'une solution existe, toute solution
-    // ultérieure sera plus grande. On s'arrête au premier palier concluant.
     if (best !== null) break;
   }
 
   return best;
 }
 
-/**
- * Compare deux candidats : d'abord le coût (nombre de pixels), puis la
- * fidélité au rapport demandé.
- */
-function isBetter(
-  candidate: GenerationSizeChoice,
-  current: GenerationSizeChoice | null,
-): boolean {
-  if (current === null) return true;
+/** Contraintes dures du modèle. */
+function isValidResolution(width: number, height: number): boolean {
+  if (width <= 0 || height <= 0) return false;
+  if (width % SIZE_CONSTRAINTS.MULTIPLE_OF !== 0) return false;
+  if (height % SIZE_CONSTRAINTS.MULTIPLE_OF !== 0) return false;
+  if (width > SIZE_CONSTRAINTS.MAX_EDGE || height > SIZE_CONSTRAINTS.MAX_EDGE) return false;
 
-  const candidateArea = candidate.width * candidate.height;
-  const currentArea = current.width * current.height;
-  if (candidateArea !== currentArea) return candidateArea < currentArea;
+  const total = width * height;
+  if (total < SIZE_CONSTRAINTS.MIN_TOTAL_PIXELS) return false;
+  if (total > SIZE_CONSTRAINTS.MAX_TOTAL_PIXELS) return false;
 
-  return candidate.aspectError < current.aspectError;
+  const ratio = width / height;
+  return Math.max(ratio, 1 / ratio) <= SIZE_CONSTRAINTS.MAX_ASPECT_RATIO;
 }
 
 /** Multiples de `step` encadrant une valeur, du plus proche au plus éloigné. */

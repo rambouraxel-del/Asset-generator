@@ -33,6 +33,7 @@ import {
   type AlphaCleanupReport,
 } from "@/lib/image/alphaCleanup";
 import {
+  maxColoursForFinalSize,
   quantizePalette,
   type QuantizationReport,
 } from "@/lib/image/paletteQuantization";
@@ -58,8 +59,21 @@ export interface PixelCleanupReport {
   isolatedPixelsRemoved: number | null;
 }
 
-/** Réglages issus de la configuration centrale. */
-export function defaultCleanupOptions(): PixelCleanupOptions {
+/**
+ * Réglages issus de la configuration centrale.
+ *
+ * Le plafond de palette s'adapte à la taille finale quand elle est connue :
+ * un 16 × 16 n'a pas besoin d'autant de teintes qu'un 128 × 128.
+ */
+export function defaultCleanupOptions(finalSize?: {
+  width: number;
+  height: number;
+}): PixelCleanupOptions {
+  const maxColours =
+    finalSize === undefined
+      ? PIXEL_CLEANUP.PALETTE.MAX_COLOURS
+      : maxColoursForFinalSize(finalSize.width, finalSize.height);
+
   return {
     alpha: {
       invisibleBelow: PIXEL_CLEANUP.ALPHA.INVISIBLE_BELOW,
@@ -67,8 +81,10 @@ export function defaultCleanupOptions(): PixelCleanupOptions {
       levels: PIXEL_CLEANUP.ALPHA.LEVELS,
     },
     palette: {
-      maxColours: PIXEL_CLEANUP.PALETTE.MAX_COLOURS,
-      skipBelowColours: PIXEL_CLEANUP.PALETTE.SKIP_BELOW_COLOURS,
+      maxColours,
+      // Le seuil de saut suit le plafond : inutile de quantifier une image
+      // déjà plus propre que la cible.
+      skipBelowColours: Math.max(4, Math.round(maxColours * 0.75)),
     },
     removeIsolatedPixels: PIXEL_CLEANUP.REMOVE_ISOLATED_PIXELS,
   };

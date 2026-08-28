@@ -22,6 +22,7 @@
 
 import type { BackgroundMode, ImageQuality, OutputFormat } from "@/lib/config";
 import type { QualityMode } from "@/lib/generation/qualityMode";
+import type { PixelPipeline } from "@/lib/image/postProcessing";
 import type { AssetCategory, StylePack, StyleReference } from "@/types/domain";
 
 /**
@@ -44,6 +45,13 @@ export interface GenerationSettings {
   finalHeight: number;
   /** Politique de qualité et de coût. */
   qualityMode: QualityMode;
+  /**
+   * Mode pixel art. `grid` demande au modèle de composer sur une grille
+   * logique et lit ensuite l'image bloc par bloc ; `classic` reprend la chaîne
+   * V0.2.2. Le serveur retombe automatiquement sur `classic` si la grille
+   * n'est pas réalisable.
+   */
+  pixelPipeline: PixelPipeline;
 
   /** Résolution manuelle : « auto » ou « LARGEURxHAUTEUR ». Régime hérité. */
   size: string;

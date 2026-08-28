@@ -57,10 +57,16 @@ function makeAsset(id: string, name: string): GeneratedAsset {
     usage: null,
     // Qualité pixel-art mesurée sur le sprite livré (V0.2.2).
     metrics: {
-      colourCount: 18,
+      colourCount: 12,
       alphaLevelCount: 2,
       semiTransparentPixels: 0,
       verdict: "propre",
+      // Grille logique (V0.2.3).
+      pipeline: "grid",
+      gridScale: 51,
+      gridFidelity: 0.94,
+      blockMethod: "dominant",
+      fallbackReason: null,
     },
     mimeType: "image/png",
     // Dimensions de l'image FINALE stockée, pas de la résolution GPT.
@@ -147,11 +153,31 @@ describe("Bibliothèque — métadonnées de la V0.2.1", () => {
     const [stored] = await listGeneratedAssets();
 
     expect(stored.metrics).toEqual({
-      colourCount: 18,
+      colourCount: 12,
       alphaLevelCount: 2,
       semiTransparentPixels: 0,
       verdict: "propre",
+      pipeline: "grid",
+      gridScale: 51,
+      gridFidelity: 0.94,
+      blockMethod: "dominant",
+      fallbackReason: null,
     });
+  });
+
+  it("conserve les métadonnées de grille logique", async () => {
+    const { putGeneratedAsset, listGeneratedAssets } = await import(
+      "@/lib/storage/generatedAssets"
+    );
+
+    await putGeneratedAsset(makeAsset("asset-1", "Potion bleue"));
+    const [stored] = await listGeneratedAssets();
+
+    expect(stored.metrics?.pipeline).toBe("grid");
+    expect(stored.metrics?.gridScale).toBe(51);
+    expect(stored.metrics?.gridFidelity).toBeCloseTo(0.94, 2);
+    expect(stored.metrics?.blockMethod).toBe("dominant");
+    expect(stored.metrics?.fallbackReason).toBeNull();
   });
 
   it("relit un asset d'avant la V0.2.1 sans champs de taille finale", async () => {

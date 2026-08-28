@@ -50,18 +50,21 @@ describe("chooseGenerationSize — respect des contraintes du modèle", () => {
 });
 
 describe("chooseGenerationSize — sobriété", () => {
-  it("retient la plus petite résolution compatible pour un carré", () => {
+  it("reste au plus près du plancher du modèle", () => {
     // 816 × 816 = 665 856 px : le premier carré multiple de 16 au-dessus du
-    // plancher de 655 360 px imposé par le modèle.
-    expect(chooseGenerationSize(16, 16, "eco")!.size).toBe("816x816");
-    expect(chooseGenerationSize(64, 64, "eco")!.size).toBe("816x816");
+    // plancher de 655 360 px. La V0.2.3 accepte un léger surcoût pour obtenir
+    // une grille entière, mais jamais davantage que le plafond configuré.
+    for (const [width, height] of FINAL_SIZES) {
+      const choice = chooseGenerationSize(width, height, "eco")!;
+      expect(choice.costRatio, `${width}x${height}`).toBeLessThanOrEqual(1.25);
+    }
   });
 
-  it("aucune résolution valide plus petite n'existe", () => {
-    const choice = chooseGenerationSize(32, 32, "eco")!;
-    const step = SIZE_CONSTRAINTS.MULTIPLE_OF;
-    const smaller = choice.width - step;
-    expect(smaller * smaller).toBeLessThan(SIZE_CONSTRAINTS.MIN_TOTAL_PIXELS);
+  it("prend la résolution la moins chère quand elle donne déjà une grille", () => {
+    // 816 / 16 = 51 et 816 / 48 = 17 : la résolution minimale tombe juste.
+    expect(chooseGenerationSize(16, 16, "eco")!.size).toBe("816x816");
+    expect(chooseGenerationSize(48, 48, "eco")!.size).toBe("816x816");
+    expect(chooseGenerationSize(16, 16, "eco")!.costRatio).toBe(1);
   });
 
   it("ne gonfle pas la résolution d'un petit asset selon le mode qualité", () => {
@@ -73,15 +76,24 @@ describe("chooseGenerationSize — sobriété", () => {
   });
 
   it("augmente la résolution pour un grand asset en qualité supérieure", () => {
-    const eco = chooseGenerationSize(512, 512, "eco")!;
     const standard = chooseGenerationSize(512, 512, "standard")!;
     const high = chooseGenerationSize(512, 512, "high")!;
 
-    expect(standard.width).toBeGreaterThan(eco.width);
     expect(high.width).toBeGreaterThan(standard.width);
     // Le suréchantillonnage annoncé est bien appliqué.
     expect(standard.width).toBeGreaterThanOrEqual(512 * 2);
     expect(high.width).toBeGreaterThanOrEqual(512 * 3);
+  });
+
+  it("refuse de payer une grille trop chère en mode éco", () => {
+    // Aligner un 512 × 512 coûterait +57 % : hors budget éco, dans le budget
+    // standard. Le mode éco doit rester éco.
+    const eco = chooseGenerationSize(512, 512, "eco")!;
+    const standard = chooseGenerationSize(512, 512, "standard")!;
+
+    expect(eco.logicalGridReady).toBe(false);
+    expect(eco.costRatio).toBe(1);
+    expect(standard.logicalGridReady).toBe(true);
   });
 });
 

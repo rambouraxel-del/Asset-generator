@@ -44,6 +44,7 @@ export async function requestGeneration(
   formData.set("finalWidth", finalSize === null ? "" : String(finalSize.width));
   formData.set("finalHeight", finalSize === null ? "" : String(finalSize.height));
   formData.set("qualityMode", payload.settings.qualityMode);
+  formData.set("pixelPipeline", payload.settings.pixelPipeline);
 
   for (const reference of payload.references) {
     formData.append("references", reference.blob, reference.name);

@@ -22,6 +22,7 @@ const SETTINGS: GenerationSettings = {
   finalWidth: 64,
   finalHeight: 64,
   qualityMode: "auto",
+  pixelPipeline: "grid",
   size: "1024x1024",
   quality: "high",
   background: "transparent",
@@ -84,10 +85,15 @@ function makeGeneratedAsset(): GeneratedAsset {
     },
     usage: null,
     metrics: {
-      colourCount: 18,
+      colourCount: 12,
       alphaLevelCount: 2,
       semiTransparentPixels: 0,
       verdict: "propre",
+      pipeline: "grid",
+      gridScale: 51,
+      gridFidelity: 0.94,
+      blockMethod: "dominant",
+      fallbackReason: null,
     },
     mimeType: "image/png",
     finalWidth: 16,
@@ -387,5 +393,67 @@ describe("La chaîne Pixel Cleanup n'introduit aucune fuite de contexte", () => 
     expect(a.settings.finalWidth).toBe(64);
     expect(b.settings.finalWidth).toBe(16);
     expect(Object.keys(a).sort()).toEqual(Object.keys(b).sort());
+  });
+});
+
+describe("La grille logique n'introduit aucune fuite de contexte", () => {
+  const pack = makePack();
+  const reference = makeReference();
+
+  it("le mode pixel art voyage dans les réglages, jamais un résultat", () => {
+    const request = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise",
+      settings: { ...SETTINGS, pixelPipeline: "grid" },
+      references: [reference],
+    });
+
+    expect(request.settings.pixelPipeline).toBe("grid");
+
+    const serialized = JSON.stringify({
+      ...request,
+      references: request.references.map((entry) => entry.name),
+    });
+
+    // Aucune donnée issue de l'analyse de grille ne remonte côté requête.
+    for (const forbidden of [
+      "fidelity",
+      "gridFidelity",
+      "blockMethod",
+      "coherentBlocks",
+      "fallbackReason",
+      "meanDeviation",
+    ]) {
+      expect(serialized, `champ de sortie présent : ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("un asset mesuré par la grille reste refusé comme référence", () => {
+    const saved = makeGeneratedAsset();
+    expect(saved.metrics?.gridScale).toBe(51);
+    expect(saved.metrics?.gridFidelity).toBe(0.94);
+    expect(() => assertStyleReference(saved)).toThrow(ForbiddenReferenceError);
+  });
+
+  it("changer de mode pixel art ne contamine pas la génération suivante", () => {
+    const a = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Un grand arbre",
+      settings: { ...SETTINGS, pixelPipeline: "classic", finalWidth: 128, finalHeight: 128 },
+      references: [reference],
+    });
+    const b = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise en bois",
+      settings: { ...SETTINGS, pixelPipeline: "grid", finalWidth: 16, finalHeight: 16 },
+      references: [reference],
+    });
+
+    expect(a.settings.pixelPipeline).toBe("classic");
+    expect(b.settings.pixelPipeline).toBe("grid");
+    expect(JSON.stringify(b)).not.toContain("arbre");
   });
 });

@@ -152,6 +152,27 @@ export function FinalSizeSelector({
             </select>
           </Field>
 
+          <Field
+            label="Mode pixel art"
+            hint={
+              settings.pixelPipeline === "grid"
+                ? "Le modèle compose directement sur la grille du sprite final."
+                : "Rendu libre, puis nettoyage. Utile si la grille native déçoit."
+            }
+          >
+            <select
+              value={settings.pixelPipeline}
+              onChange={(event) =>
+                onChange({ pixelPipeline: event.target.value as "grid" | "classic" })
+              }
+              className={selectClasses()}
+              aria-label="Mode pixel art"
+            >
+              <option value="grid">Grille native</option>
+              <option value="classic">Nettoyage classique</option>
+            </select>
+          </Field>
+
           {customError === null ? <GenerationPlan settings={settings} /> : null}
         </>
       ) : (
@@ -187,19 +208,42 @@ function GenerationPlan({ settings }: { settings: GenerationSettings }) {
     );
   }
 
+  const gridActive = settings.pixelPipeline === "grid" && choice.logicalGridReady;
+
   return (
     <div className="rounded-xl bg-surface-muted p-3 text-sm">
       <Row label="Taille finale" value={`${settings.finalWidth} × ${settings.finalHeight} px`} />
       <Row label="Résolution de génération" value={`${choice.width} × ${choice.height} px`} />
       <Row
+        label="Grille logique"
+        value={gridActive ? `×${choice.scaleX}` : "non disponible"}
+      />
+      <Row
         label="Qualité"
         value={describeQualityMode(settings.qualityMode as QualityMode, resolved)}
       />
+
       <p className="mt-2 text-xs text-muted">
-        GPT-Image-2 ne sait pas générer d&apos;aussi petites images : l&apos;asset est
-        rendu en {choice.width} × {choice.height}, puis réduit localement
-        (÷ {formatFactor(choice.downscaleFactor)}) sans lissage. Ce post-traitement
-        ne consomme aucun jeton.
+        {gridActive ? (
+          <>
+            Chaque pixel du sprite final correspondra à un bloc de {choice.scaleX} ×{" "}
+            {choice.scaleX} pixels générés, lu bloc par bloc. Aucun jeton
+            supplémentaire.
+          </>
+        ) : settings.pixelPipeline === "grid" ? (
+          <>
+            Aucune grille entière n&apos;est possible à cette taille sans faire
+            exploser le coût : le nettoyage classique sera utilisé (rendu en{" "}
+            {choice.width} × {choice.height}, puis réduction ÷{" "}
+            {formatFactor(choice.downscaleFactor)}).
+          </>
+        ) : (
+          <>
+            Rendu en {choice.width} × {choice.height}, puis réduit localement (÷{" "}
+            {formatFactor(choice.downscaleFactor)}) et nettoyé. Aucun jeton
+            supplémentaire.
+          </>
+        )}
       </p>
     </div>
   );

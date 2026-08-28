@@ -42,6 +42,10 @@ export interface GenerateSuccessResponse {
     generationSize: string;
     /** `true` si c'était la plus petite résolution compatible. */
     minimalResolution: boolean;
+    /** Mode pixel art demandé (V0.2.3). */
+    pixelPipeline: string;
+    /** `true` si la résolution retenue permet une vraie grille logique. */
+    logicalGridReady: boolean;
     /** Compte rendu du post-traitement local, `null` s'il n'a pas eu lieu. */
     postProcessing: PostProcessReport | null;
     /** `null` si l'API n'a remonté aucune donnée de consommation. */

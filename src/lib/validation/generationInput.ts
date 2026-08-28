@@ -44,6 +44,8 @@ export const generationInputSchema = z.object({
   finalWidth: z.number().int().nullable(),
   finalHeight: z.number().int().nullable(),
   qualityMode: z.enum(QUALITY_MODES),
+  /* Mode pixel art demandé (V0.2.3). */
+  pixelPipeline: z.enum(["grid", "classic"]),
 })
   .superRefine((value, ctx) => {
     // Les deux dimensions finales vont toujours de pair.

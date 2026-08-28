@@ -22,7 +22,37 @@
  * ---------------------------------------------------------------------------
  */
 
+import { ADAPTIVE_PALETTE } from "@/lib/config";
 import type { RgbaImage } from "@/lib/image/pixels";
+
+/**
+ * Plafond de couleurs adapté à la taille finale du sprite.
+ *
+ * Un 16 × 16 n'a qu'environ 200 pixels visibles : lui laisser 32 couleurs
+ * produit un rendu inutilement riche — c'est la limite relevée en V0.2.2, où
+ * un 16 × 16 ressortait « acceptable » plutôt que « propre ». La table
+ * `ADAPTIVE_PALETTE` est interpolée linéairement sur le plus grand côté, et
+ * extrapolée en palier au-delà des bornes.
+ */
+export function maxColoursForFinalSize(width: number, height: number): number {
+  const edge = Math.max(width, height);
+  const table = ADAPTIVE_PALETTE;
+
+  if (edge <= table[0].edge) return table[0].colours;
+  const last = table[table.length - 1];
+  if (edge >= last.edge) return last.colours;
+
+  for (let index = 1; index < table.length; index += 1) {
+    const previous = table[index - 1];
+    const current = table[index];
+    if (edge > current.edge) continue;
+
+    const ratio = (edge - previous.edge) / (current.edge - previous.edge);
+    return Math.round(previous.colours + ratio * (current.colours - previous.colours));
+  }
+
+  return last.colours;
+}
 
 export interface QuantizationOptions {
   /** Nombre maximal de couleurs conservées. */
