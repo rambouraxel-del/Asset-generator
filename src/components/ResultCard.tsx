@@ -87,6 +87,9 @@ export function ResultCard({
       categoryName: result.meta.categoryName,
       targetWidth: result.meta.targetWidth,
       targetHeight: result.meta.targetHeight,
+      // Dimensions réelles du PNG enregistré : c'est la version finale.
+      finalWidth: result.meta.finalWidth,
+      finalHeight: result.meta.finalHeight,
       request: result.request,
       settings: {
         size: result.meta.size,
@@ -95,6 +98,10 @@ export function ResultCard({
         outputFormat: result.meta.outputFormat as never,
         model: result.meta.model,
         referenceCount: result.meta.referenceCount,
+        qualityMode: result.meta.qualityMode,
+        qualityModeLabel: result.meta.qualityModeLabel,
+        minimalResolution: result.meta.minimalResolution,
+        postProcessed: result.meta.postProcessing !== null,
       },
       usage: result.meta.usage,
       mimeType: result.image.mimeType,
@@ -107,7 +114,11 @@ export function ResultCard({
     <Section
       step="3"
       title="Résultat"
-      description={`${result.meta.model} · ${result.meta.size} · ${referenceCount} référence${
+      description={`${
+        result.meta.finalWidth && result.meta.finalHeight
+          ? `${result.meta.finalWidth} × ${result.meta.finalHeight} px`
+          : "rendu brut"
+      } · ${result.meta.model} · ${referenceCount} référence${
         referenceCount > 1 ? "s" : ""
       }`}
     >
@@ -117,7 +128,11 @@ export function ResultCard({
         <img
           src={dataUrl}
           alt={`Asset généré : ${result.request}`}
-          className="max-h-[55vh] w-auto max-w-full object-contain"
+          /*
+           * `pixelated` : un asset de 16 × 16 affiché en grand doit rester
+           * net, sinon l'aperçu ment sur ce qui a été produit.
+           */
+          className="max-h-[55vh] w-auto max-w-full object-contain [image-rendering:pixelated]"
         />
       </div>
 
@@ -135,7 +150,7 @@ export function ResultCard({
       </div>
 
       <div className="mt-3">
-        <UsagePanel usage={result.meta.usage} rates={rates} />
+        <UsagePanel usage={result.meta.usage} rates={rates} meta={result.meta} />
       </div>
 
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">

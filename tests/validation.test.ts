@@ -20,6 +20,9 @@ const VALID_INPUT = {
   categoryRule: "L'objet doit tenir entièrement dans cette emprise.",
   targetWidth: 32,
   targetHeight: 32,
+  finalWidth: 32,
+  finalHeight: 32,
+  qualityMode: "auto",
 };
 
 function png(byteLength = 32): Uint8Array {
@@ -78,6 +81,54 @@ describe("parseGenerationInput", () => {
     expect(() => parseGenerationInput({ ...VALID_INPUT, targetWidth: -5 })).toThrow(
       expect.objectContaining({ code: "INVALID_REQUEST" }),
     );
+  });
+
+  it("accepte une taille finale absente (rendu brut)", () => {
+    const parsed = parseGenerationInput({
+      ...VALID_INPUT,
+      finalWidth: null,
+      finalHeight: null,
+    });
+    expect(parsed.finalWidth).toBeNull();
+    expect(parsed.finalHeight).toBeNull();
+  });
+
+  it("refuse une taille finale à moitié renseignée", () => {
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, finalHeight: null }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_SIZE" }));
+  });
+
+  it("refuse une taille finale hors bornes", () => {
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, finalWidth: 0, finalHeight: 0 }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_SIZE" }));
+
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, finalWidth: 5000, finalHeight: 5000 }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_SIZE" }));
+  });
+
+  it("refuse une taille finale au rapport impossible", () => {
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, finalWidth: 400, finalHeight: 100 }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_SIZE" }));
+  });
+
+  it("accepte une taille finale non multiple de 16", () => {
+    // Rien ne l'interdit : c'est une taille d'asset, pas une contrainte API.
+    const parsed = parseGenerationInput({
+      ...VALID_INPUT,
+      finalWidth: 24,
+      finalHeight: 24,
+    });
+    expect(parsed.finalWidth).toBe(24);
+  });
+
+  it("rejette un mode qualité inconnu", () => {
+    expect(() =>
+      parseGenerationInput({ ...VALID_INPUT, qualityMode: "turbo" }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_REQUEST" }));
   });
 });
 

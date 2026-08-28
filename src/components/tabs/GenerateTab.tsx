@@ -10,6 +10,7 @@ import {
 } from "@/lib/config";
 import { buildGenerationRequest } from "@/lib/generation/payload";
 import type { PricingRates } from "@/lib/pricing";
+import { validateFinalSize } from "@/lib/validation/finalSize";
 import { validateImageSize } from "@/lib/validation/imageSize";
 import { useAppState } from "@/hooks/useAppState";
 import type { useGeneration } from "@/hooks/useGeneration";
@@ -18,6 +19,11 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Field, selectClasses, textareaClasses } from "@/components/ui/Field";
 import { Section } from "@/components/ui/Section";
+import {
+  FinalSizeSelector,
+  initialFinalSizeMode,
+  type FinalSizeMode,
+} from "@/components/FinalSizeSelector";
 import { SizeSelector } from "@/components/SizeSelector";
 import { ResultCard } from "@/components/ResultCard";
 
@@ -64,18 +70,41 @@ export function GenerateTab({
   const state = useAppState();
   const [request, setRequest] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
+  // Saisie libre de la taille finale, conservée pendant la frappe.
+  const [customFinalSize, setCustomFinalSize] = useState("");
+  const [finalSizeMode, setFinalSizeMode] = useState<FinalSizeMode>(() =>
+    initialFinalSizeMode(
+      state.settings.finalSizeEnabled,
+      state.settings.finalWidth,
+      state.settings.finalHeight,
+    ),
+  );
 
   const pack = state.activePack;
   if (pack === null) return null;
 
   const category = pack.categories.find((entry) => entry.id === categoryId) ?? null;
-  const sizeValidation = validateImageSize(state.settings.size);
+  /*
+   * Quelle taille faut-il valider ?
+   *   - régime hérité   : la résolution manuelle ;
+   *   - taille libre    : la SAISIE EN COURS, pas la dernière valeur validée —
+   *     sans quoi une saisie fautive laisserait le bouton actif et lancerait
+   *     une génération à l'ancienne taille, sans que l'utilisateur le voie ;
+   *   - preset          : toujours valide.
+   */
+  const sizeValid =
+    finalSizeMode === "raw"
+      ? validateImageSize(state.settings.size).ok
+      : finalSizeMode === "custom"
+        ? validateFinalSize(customFinalSize).ok
+        : true;
+
   const blocked = resolveBlockingReason({
     request,
     contextLength: pack.context.length,
     enabledBytes: state.enabledBytes,
     enabledCount: state.enabledReferences.length,
-    sizeValid: sizeValidation.ok,
+    sizeValid,
   });
 
   async function handleGenerate() {
@@ -137,31 +166,44 @@ export function GenerateTab({
       </Section>
 
       <Section step="2" title="Réglages de sortie">
-        <SizeSelector
-          value={state.settings.size}
-          onChange={(size) => state.updateSettings({ size })}
+        <FinalSizeSelector
+          settings={state.settings}
+          mode={finalSizeMode}
+          onModeChange={setFinalSizeMode}
+          customValue={customFinalSize}
+          onCustomValueChange={setCustomFinalSize}
+          onChange={state.updateSettings}
         />
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Qualité">
-            <select
-              value={state.settings.quality}
-              onChange={(event) =>
-                state.updateSettings({
-                  quality: event.target.value as typeof state.settings.quality,
-                })
-              }
-              className={selectClasses()}
-              aria-label="Qualité"
-            >
-              {IMAGE_QUALITIES.map((quality) => (
-                <option key={quality} value={quality}>
-                  {QUALITY_LABELS[quality]}
-                </option>
-              ))}
-            </select>
-          </Field>
+        {/* Régime hérité : réglages manuels, uniquement sans taille finale. */}
+        {finalSizeMode === "raw" ? (
+          <div className="mt-3 flex flex-col gap-3">
+            <SizeSelector
+              value={state.settings.size}
+              onChange={(size) => state.updateSettings({ size })}
+            />
+            <Field label="Qualité">
+              <select
+                value={state.settings.quality}
+                onChange={(event) =>
+                  state.updateSettings({
+                    quality: event.target.value as typeof state.settings.quality,
+                  })
+                }
+                className={selectClasses()}
+                aria-label="Qualité"
+              >
+                {IMAGE_QUALITIES.map((quality) => (
+                  <option key={quality} value={quality}>
+                    {QUALITY_LABELS[quality]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        ) : null}
 
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Fond">
             <select
               value={state.settings.background}
@@ -181,27 +223,41 @@ export function GenerateTab({
             </select>
           </Field>
 
-          <Field label="Format">
-            <select
-              value={state.settings.outputFormat}
-              onChange={(event) =>
-                state.updateSettings({
-                  outputFormat: event.target.value as typeof state.settings.outputFormat,
-                })
-              }
-              className={selectClasses()}
-              aria-label="Format"
-            >
-              {OUTPUT_FORMATS.map((format) => (
-                <option key={format} value={format}>
-                  {FORMAT_LABELS[format]}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {state.settings.finalSizeEnabled ? (
+            <Field label="Format" hint="PNG imposé : sans perte et avec transparence.">
+              <select
+                value="png"
+                disabled
+                className={selectClasses()}
+                aria-label="Format"
+              >
+                <option value="png">PNG</option>
+              </select>
+            </Field>
+          ) : (
+            <Field label="Format">
+              <select
+                value={state.settings.outputFormat}
+                onChange={(event) =>
+                  state.updateSettings({
+                    outputFormat: event.target.value as typeof state.settings.outputFormat,
+                  })
+                }
+                className={selectClasses()}
+                aria-label="Format"
+              >
+                {OUTPUT_FORMATS.map((format) => (
+                  <option key={format} value={format}>
+                    {FORMAT_LABELS[format]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
         </div>
 
-        {state.settings.background === "transparent" &&
+        {!state.settings.finalSizeEnabled &&
+        state.settings.background === "transparent" &&
         state.settings.outputFormat === "jpeg" ? (
           <div className="mt-3">
             <Alert tone="warning">
@@ -272,7 +328,7 @@ function resolveBlockingReason(input: {
     return "Décrivez l'asset à créer pour activer la génération.";
   }
   if (!input.sizeValid) {
-    return "Corrigez la résolution de génération.";
+    return "Corrigez la taille demandée.";
   }
   if (input.contextLength > LIMITS.CONTEXT_MAX_CHARS) {
     return "Le contexte du Style Pack dépasse la longueur maximale autorisée.";

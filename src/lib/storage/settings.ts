@@ -12,7 +12,10 @@ import type { GenerationSettings } from "@/lib/generation/payload";
 
 const SETTINGS_KEY = "asset-generator:settings";
 
-export const DEFAULT_SETTINGS: GenerationSettings = { ...DEFAULT_GENERATION_SETTINGS };
+export const DEFAULT_SETTINGS: GenerationSettings = {
+  ...DEFAULT_GENERATION_SETTINGS,
+  qualityMode: "auto",
+};
 
 export function loadSettings(): GenerationSettings {
   try {

@@ -14,8 +14,9 @@
  * Cette fonction est pure et ne reçoit que :
  *   1. le contexte du Style Pack actif,
  *   2. la catégorie et ses contraintes dimensionnelles,
- *   3. le nombre de références actuellement activées,
- *   4. la demande actuelle.
+ *   3. la dimension finale visée de l'asset,
+ *   4. le nombre de références actuellement activées,
+ *   5. la demande actuelle.
  * Aucun historique, aucune génération précédente, aucun asset de la
  * bibliothèque. Toute évolution future doit préserver cette propriété.
  * ---------------------------------------------------------------------------
@@ -33,6 +34,18 @@ export const PROMPT_TEMPLATE = {
     "Aucune image de référence n'est fournie : applique strictement les règles du Style Pack ci-dessus.",
 
   categoryHeading: "CATÉGORIE :",
+
+  finalSizeHeading: "DIMENSION FINALE CIBLE :",
+  /*
+   * Le modèle ignore tout de la résolution réellement demandée à l'API : on ne
+   * lui parle QUE de la taille finale de l'asset. C'est ce qui l'amène à
+   * composer un objet lisible à cette échelle plutôt qu'une scène détaillée
+   * qui deviendrait illisible une fois réduite.
+   */
+  finalSizeNotice:
+    "L'asset doit être conçu pour tenir lisiblement et entièrement dans cette emprise finale. Ne crée pas une scène large. Un seul asset, isolé, entièrement visible, cadré au plus près.",
+  finalSizeSmallNotice:
+    "À cette très petite taille, privilégie une silhouette nette et lisible, des aplats francs et un contraste marqué : les détails fins seraient perdus.",
 
   dimensionsHeading: "CONTRAINTES DIMENSIONNELLES :",
   /**
@@ -73,6 +86,14 @@ export interface AssetPromptInput {
   categoryRule?: string;
   /** Demande ponctuelle décrivant l'asset à produire. */
   request: string;
+  /**
+   * Dimensions finales visées de l'asset livré, en pixels.
+   *
+   * Attention : ce n'est PAS la résolution demandée à l'API. Le modèle génère
+   * plus grand, et le post-traitement local ramène l'image à cette taille.
+   */
+  finalWidth?: number | null;
+  finalHeight?: number | null;
   /** Nombre de références effectivement jointes à cet appel. */
   referenceCount: number;
   /** Mode de fond demandé : ajoute une consigne explicite. */
@@ -106,6 +127,14 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
     blocks.push(`${PROMPT_TEMPLATE.categoryHeading}\n${categoryName}`);
   }
 
+  const finalSize = buildFinalSizeBlock(
+    input.finalWidth ?? null,
+    input.finalHeight ?? null,
+  );
+  if (finalSize !== null) {
+    blocks.push(`${PROMPT_TEMPLATE.finalSizeHeading}\n${finalSize}`);
+  }
+
   const dimensions = buildDimensionsBlock(
     input.targetWidth ?? null,
     input.targetHeight ?? null,
@@ -127,6 +156,30 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
 
   return blocks.join("\n\n");
 }
+
+/**
+ * Bloc de dimension finale, ou `null` si aucune taille finale n'est demandée.
+ *
+ * Une consigne supplémentaire est ajoutée sous 48 px : à cette échelle, un
+ * rendu détaillé devient illisible après réduction.
+ */
+function buildFinalSizeBlock(width: number | null, height: number | null): string | null {
+  if (width === null || height === null) return null;
+
+  const lines = [
+    `${width} × ${height} px`,
+    PROMPT_TEMPLATE.finalSizeNotice,
+  ];
+
+  if (Math.max(width, height) <= SMALL_ASSET_MAX_EDGE) {
+    lines.push(PROMPT_TEMPLATE.finalSizeSmallNotice);
+  }
+
+  return lines.join("\n");
+}
+
+/** Seuil au-delà duquel un asset n'est plus considéré comme « très petit ». */
+export const SMALL_ASSET_MAX_EDGE = 48;
 
 /** Bloc dimensionnel, ou `null` si la catégorie n'impose rien. */
 function buildDimensionsBlock(

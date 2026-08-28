@@ -1,6 +1,6 @@
 {
   "name": "asset-generator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Générateur d'assets graphiques cohérents pour jeu vidéo, basé sur l'API OpenAI GPT Image.",
   "scripts": {
@@ -14,8 +14,10 @@
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
+    "@types/pngjs": "^6.0.5",
     "next": "16.3.3",
     "openai": "^7.7.0",
+    "pngjs": "^7.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "^4.4.3"

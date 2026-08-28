@@ -1,4 +1,4 @@
-# Asset Generator — V0.2
+# Asset Generator — V0.2.1
 
 Web-app de génération d'**assets graphiques cohérents pour jeu vidéo**, à partir
 de l'API OpenAI GPT Image.
@@ -48,6 +48,23 @@ Les deux familles d'images ne peuvent pas être confondues, à trois niveaux :
 Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 [`library.test.ts`](tests/library.test.ts) verrouillent ces trois barrières.
 
+## Nouveautés de la V0.2.1
+
+**Objectif : livrer un PNG directement exploitable dans le jeu.**
+
+Vous choisissez la taille finale de l'asset — 16 × 16, 32 × 32, 64 × 96… —
+et vous recevez un PNG exactement à cette dimension. GPT-Image-2 ne sachant pas
+générer d'aussi petites images, l'application choisit la plus petite résolution
+compatible, puis ramène le rendu à la taille voulue **en local, sans consommer
+un seul jeton supplémentaire**.
+
+- **Taille finale de l'asset** — presets et saisie libre.
+- **Résolution de génération automatique** — la plus petite qui convienne.
+- **Modes qualité** — Auto, Éco, Standard, Haute qualité.
+- **Post-traitement local** — détourage, réduction sans lissage, recadrage exact.
+- **Récapitulatif clair** — taille livrée, résolution réellement demandée au
+  modèle, mode qualité, et étiquettes d'optimisation.
+
 ## Nouveautés de la V0.2
 
 - **Style Packs** — créer, sélectionner, renommer, dupliquer, supprimer. Chaque
@@ -71,8 +88,9 @@ Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 | **Tailwind CSS 4** | Interface mobile-first sans feuille de style séparée. |
 | **SDK officiel `openai`** | Endpoints Images à jour, typage complet, gestion des erreurs et des timeouts. |
 | **localStorage + IndexedDB** | Textes et métadonnées dans `localStorage`, images dans IndexedDB (blobs binaires, quota large). Aucune base distante. |
+| **`pngjs`** | Codec PNG **pur JavaScript, sans dépendance ni binaire natif** : aucune surprise en environnement serverless, et 712 Ko seulement. Les opérations pixel sont écrites à la main pour garantir l'absence de lissage. |
 | **Zod** | Validation des entrées côté serveur, source de vérité unique. |
-| **Vitest + fake-indexeddb** | 75 tests, dont la vraie migration IndexedDB v1 → v2. |
+| **Vitest + fake-indexeddb** | 152 tests, dont la vraie migration IndexedDB v1 → v2 et toute la chaîne de post-traitement sur de vrais PNG. |
 
 ## Prérequis
 
@@ -134,21 +152,76 @@ Vérification possible après un `npm run build` :
 grep -r "sk-proj" .next/static/   # ne doit rien renvoyer
 ```
 
-## Dimensions cibles ≠ résolution de génération
+## Trois notions de taille
 
-C'est la distinction la plus importante de la V0.2.
+C'est la distinction structurante du projet. Elles ne se confondent jamais.
 
-| | Dimensions cibles (catégorie) | Résolution (réglages) |
+| | Emprise cible (catégorie) | **Taille finale** | Résolution de génération |
+| --- | --- | --- | --- |
+| Ce que c'est | l'emprise voulue dans le jeu | les dimensions du PNG livré | ce qui est demandé au modèle |
+| Où elle agit | **dans le prompt** | **dans le post-traitement** | dans le paramètre `size` |
+| Qui la choisit | l'utilisateur, par catégorie | l'utilisateur | **l'application, automatiquement** |
+| Exemple | « Petit objet : 32 × 32 px » | `16 × 16` | `816 × 816` |
+
+`gpt-image-2` **ne sait pas produire une image de 16 × 16 px** : il impose un
+minimum d'environ 655 360 pixels au total. C'est précisément pour cela que la
+taille finale et la résolution de génération sont deux réglages distincts —
+l'une est un besoin de jeu, l'autre une contrainte technique.
+
+Le prompt ne parle jamais de la résolution de génération : il annonce la
+**dimension finale cible**, ce qui amène le modèle à composer un objet lisible à
+cette échelle plutôt qu'une scène détaillée qui deviendrait illisible une fois
+réduite. Il précise aussi que cette dimension est une contrainte de conception,
+**pas** une autorisation d'étirer l'objet pour remplir le cadre.
+
+### Choix automatique de la résolution
+
+[`chooseGenerationSize`](src/lib/generation/generationSizing.ts) retient la plus
+petite résolution qui satisfasse toutes les contraintes du modèle, à rapport
+constant. Objectif : sobriété.
+
+| Taille finale | Résolution retenue | Réduction |
 | --- | --- | --- |
-| Ce que c'est | l'emprise voulue de l'objet dans le jeu | la taille de l'image demandée à l'API |
-| Où elle va | **dans le prompt** | dans le paramètre `size` |
-| Exemple | « Petit objet : 32 × 32 px » | `1536x864` |
+| 16 × 16 | 816 × 816 | ÷ 51 |
+| 32 × 32 | 816 × 816 | ÷ 25,5 |
+| 64 × 96 | 672 × 1008 | ÷ 10,5 |
+| 128 × 128 | 816 × 816 | ÷ 6,4 |
 
-Elles sont volontairement dissociées : `gpt-image-2` **ne sait pas produire une
-image de 32 × 32 px** (minimum ≈ 655 360 pixels au total), alors qu'un asset de
-32 × 32 px reste un besoin parfaitement légitime. Le prompt précise d'ailleurs
-que la dimension cible est une contrainte de conception, **pas** une
-autorisation d'étirer l'objet pour remplir le cadre.
+816 × 816 = 665 856 pixels : le premier carré multiple de 16 au-dessus du
+plancher du modèle. Aucune résolution valide plus petite n'existe — le mode
+qualité ne peut donc pas gonfler la facture d'un petit asset. Il n'agit que sur
+les assets déjà grands, via un facteur de suréchantillonnage (× 1 en éco, × 2 en
+standard, × 3 en haute qualité).
+
+### Modes qualité
+
+| Mode | Effet |
+| --- | --- |
+| **Auto** (défaut) | ≤ 32 px → éco · ≤ 96 px → standard · au-delà → haute |
+| Éco / Standard / Haute | force le mode, quelle que soit la taille |
+
+Un asset de 16 × 16 n'a aucun intérêt à être rendu en qualité haute : le détail
+serait perdu à la réduction. Le mode Auto applique cette règle simple.
+
+### Post-traitement local
+
+Sans second appel IA, donc **sans jeton supplémentaire** :
+
+1. décodage du PNG renvoyé par l'API ;
+2. détection des marges transparentes ;
+3. recadrage sur l'asset seul ;
+4. réduction au plus proche voisin — **jamais de lissage** ;
+5. dépôt centré sur un canvas transparent aux dimensions exactes ;
+6. ré-encodage PNG.
+
+Le rééchantillonnage est écrit à la main
+([`pixels.ts`](src/lib/image/pixels.ts)) précisément pour que la promesse
+« aucun anti-aliasing » soit vérifiable : chaque pixel de sortie est la copie
+exacte d'un pixel d'entrée, jamais une moyenne. Les tests interdisent
+l'apparition de toute couleur absente de l'original.
+
+L'ancrage `bottom-center`, utile aux objets posés au sol, existe et est testé
+dans le moteur ; la V0.2.1 n'expose que le centrage dans l'interface.
 
 ### Contraintes de résolution de `gpt-image-2`
 
@@ -224,6 +297,7 @@ Définies dans [`src/lib/config.ts`](src/lib/config.ts), appliquées côté clie
 | Poids cumulé des références | 4 Mo |
 | Fichier à l'import | 20 Mo (réduit à 1536 px de côté) |
 | Assets en bibliothèque | 500 |
+| Taille finale d'un asset | 1 à 2048 px par côté, rapport ≤ 3:1 |
 
 Le poids cumulé des références actives est affiché en permanence dans l'onglet
 Style, avec une jauge : la limite d'envoi reste ainsi lisible avant de lancer une
@@ -282,7 +356,13 @@ src/
 │   ├── config.ts                   Modèle, limites, contraintes de résolution
 │   ├── errors.ts                   Codes d'erreur + messages utilisateur
 │   ├── pricing.ts                  Estimation de coût (isolée, sans tarif figé)
-│   ├── generation/payload.ts       Point de passage obligé vers l'API
+│   ├── generation/
+│   │   ├── payload.ts              Point de passage obligé vers l'API
+│   │   ├── generationSizing.ts     Choix automatique de la résolution GPT
+│   │   └── qualityMode.ts          Modes qualité et politique de coût
+│   ├── image/
+│   │   ├── pixels.ts               Opérations pixel, sans lissage possible
+│   │   └── postProcessing.ts       Chaîne complète vers la taille finale
 │   ├── prompt/assetPrompt.ts       Construction du prompt (point d'extension)
 │   ├── openai/                     Client (server-only) + appel Images
 │   ├── validation/                 Texte (Zod), résolution, signature d'image
@@ -291,7 +371,7 @@ src/
 ├── types/
 │   ├── domain.ts                   StyleReference ≠ GeneratedAsset
 │   └── api.ts                      Contrat navigateur ↔ serveur
-tests/                              75 tests
+tests/                              152 tests
 ```
 
 ## Sécurité
@@ -304,10 +384,10 @@ tests/                              75 tests
 - Messages d'erreur lisibles côté client ; détails techniques uniquement dans la
   console serveur — jamais la clé, jamais le prompt, jamais le base64 complet.
 
-## Volontairement absent de la V0.2
+## Volontairement absent de la V0.2.1
 
 Comptes utilisateurs, authentification, synchronisation cloud, base distante,
 sélection automatique des références par IA, RAG, mémoire, apprentissage,
-fine-tuning, validation visuelle automatique, réduction de palette, conversion
-pixel-perfect, spritesheets, animations, génération par lots, versioning des
-Style Packs.
+fine-tuning, validation visuelle automatique, réduction de palette, spritesheets,
+animations, génération par lots, export/import, éditeur d'ancrage, suppression
+d'arrière-plan par un second modèle.

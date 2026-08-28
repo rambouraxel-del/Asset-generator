@@ -18,6 +18,10 @@ import { buildAssetPrompt } from "@/lib/prompt/assetPrompt";
 import type { GeneratedAsset, StylePack, StyleReference } from "@/types/domain";
 
 const SETTINGS: GenerationSettings = {
+  finalSizeEnabled: true,
+  finalWidth: 64,
+  finalHeight: 64,
+  qualityMode: "auto",
   size: "1024x1024",
   quality: "high",
   background: "transparent",
@@ -67,15 +71,21 @@ function makeGeneratedAsset(): GeneratedAsset {
     targetHeight: 128,
     request: "Un grand arbre",
     settings: {
-      size: "1024x1024",
-      quality: "high",
+      size: "816x816",
+      quality: "low",
       background: "transparent",
       outputFormat: "png",
       model: "gpt-image-2",
       referenceCount: 1,
+      qualityMode: "auto",
+      qualityModeLabel: "Auto (éco)",
+      minimalResolution: true,
+      postProcessed: true,
     },
     usage: null,
     mimeType: "image/png",
+    finalWidth: 16,
+    finalHeight: 16,
     blob: new Blob([new Uint8Array([9, 9, 9])], { type: "image/png" }),
   };
 }
@@ -244,5 +254,70 @@ describe("Régénérer rejoue exactement la même requête", () => {
 
     expect(replayed).toBe(snapshot);
     expect(Object.keys(replayed)).toEqual(Object.keys(snapshot));
+  });
+});
+
+describe("La chaîne V0.2.1 n'introduit aucune fuite de contexte", () => {
+  const pack = makePack();
+  const reference = makeReference();
+
+  it("la taille finale et le mode qualité ne transportent rien d'une génération à l'autre", () => {
+    const requestA = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Un grand arbre",
+      settings: { ...SETTINGS, finalWidth: 128, finalHeight: 128, qualityMode: "high" },
+      references: [reference],
+    });
+
+    const requestB = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise en bois",
+      settings: { ...SETTINGS, finalWidth: 16, finalHeight: 16, qualityMode: "eco" },
+      references: [reference],
+    });
+
+    expect(requestB.settings.finalWidth).toBe(16);
+    expect(requestB.settings.qualityMode).toBe("eco");
+    // Les réglages de A n'ont pas déteint sur B.
+    expect(requestA.settings.finalWidth).toBe(128);
+    expect(JSON.stringify(requestB)).not.toContain("arbre");
+  });
+
+  it("un asset post-traité enregistré reste refusé comme référence", () => {
+    const saved = makeGeneratedAsset();
+    // Il porte désormais une taille finale et un compte rendu de traitement :
+    // cela ne le rend pas plus acceptable en entrée.
+    expect(saved.finalWidth).toBe(16);
+    expect(saved.settings.postProcessed).toBe(true);
+    expect(() => assertStyleReference(saved)).toThrow(ForbiddenReferenceError);
+  });
+
+  it("la requête ne contient aucun champ lié au résultat post-traité", () => {
+    const request = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise",
+      settings: SETTINGS,
+      references: [reference],
+    });
+
+    const serialized = JSON.stringify({
+      ...request,
+      references: request.references.map((entry) => entry.name),
+    });
+
+    for (const forbidden of [
+      "postProcessing",
+      "postProcessed",
+      "generationSize",
+      "trimmedBounds",
+      "scaledWidth",
+    ]) {
+      expect(serialized, `champ de résultat présent : ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

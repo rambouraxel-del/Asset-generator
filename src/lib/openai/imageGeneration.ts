@@ -4,6 +4,8 @@ import OpenAI, { toFile } from "openai";
 
 import type { BackgroundMode, ImageQuality, OutputFormat } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { createTransparentImage } from "@/lib/image/pixels";
+import { encodePng } from "@/lib/image/postProcessing";
 import { getImageModel, getOpenAIClient, isMockMode } from "@/lib/openai/client";
 import type { ValidatedReferenceImage } from "@/lib/validation/imageFile";
 import type { TokenUsage } from "@/types/domain";
@@ -67,7 +69,7 @@ export async function generateAssetImage(
   const model = getImageModel();
 
   if (isMockMode()) {
-    return buildMockImage(model);
+    return buildMockImage(model, params.size);
   }
 
   const client = getOpenAIClient();
@@ -194,16 +196,49 @@ export function translateOpenAIError(error: unknown): AppError {
 }
 
 /**
- * Image de test (damier 512x512) renvoyée quand MOCK_OPENAI est actif.
- * Permet de valider toute la chaîne sans consommer de crédits API.
+ * Image de test renvoyée quand MOCK_OPENAI est actif.
+ *
+ * C'est un VRAI PNG, aux dimensions réellement demandées, avec de larges
+ * marges transparentes autour du motif. Le mode maquette exerce donc toute la
+ * chaîne de post-traitement — détourage, réduction, recadrage — et pas
+ * seulement l'interface.
  */
-function buildMockImage(model: string): GeneratedImage {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#1f2937"/><circle cx="256" cy="256" r="150" fill="#38bdf8"/><rect x="156" y="356" width="200" height="24" rx="12" fill="#f8fafc"/></svg>`;
+function buildMockImage(model: string, size: string): GeneratedImage {
+  const { width, height } = parseMockSize(size);
+  const image = createTransparentImage(width, height);
+
+  // Disque centré occupant environ la moitié du cadre : le reste est
+  // transparent, ce qui donne au détourage quelque chose à retirer.
+  const centreX = width / 2;
+  const centreY = height / 2;
+  const radius = Math.min(width, height) * 0.25;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const dx = x + 0.5 - centreX;
+      const dy = y + 0.5 - centreY;
+      if (dx * dx + dy * dy > radius * radius) continue;
+
+      const offset = (y * width + x) * 4;
+      image.data[offset] = 56;
+      image.data[offset + 1] = 189;
+      image.data[offset + 2] = 248;
+      image.data[offset + 3] = 255;
+    }
+  }
+
   return {
-    base64: Buffer.from(svg, "utf8").toString("base64"),
-    mimeType: "image/svg+xml",
+    base64: encodePng(image).toString("base64"),
+    mimeType: "image/png",
     model: `${model} (mock)`,
     // Le mode maquette n'invente pas de consommation : il n'y en a pas eu.
     usage: null,
   };
+}
+
+/** Dimensions du PNG de test. « auto » retombe sur un carré standard. */
+function parseMockSize(size: string): { width: number; height: number } {
+  const match = /^(\d+)x(\d+)$/i.exec(size.trim());
+  if (!match) return { width: 1024, height: 1024 };
+  return { width: Number(match[1]), height: Number(match[2]) };
 }

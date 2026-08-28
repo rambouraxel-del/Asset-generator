@@ -21,13 +21,35 @@
  */
 
 import type { BackgroundMode, ImageQuality, OutputFormat } from "@/lib/config";
+import type { QualityMode } from "@/lib/generation/qualityMode";
 import type { AssetCategory, StylePack, StyleReference } from "@/types/domain";
 
-/** Réglages d'une génération, tels qu'envoyés à l'API. */
+/**
+ * Réglages d'une génération.
+ *
+ * Deux régimes cohabitent volontairement :
+ *
+ *   - `finalSizeEnabled = true`  — l'utilisateur choisit la TAILLE FINALE de
+ *     l'asset ; la résolution envoyée à l'API et la qualité sont déduites
+ *     automatiquement, et le résultat est post-traité côté serveur.
+ *
+ *   - `finalSizeEnabled = false` — comportement hérité de la V0.2 : `size` et
+ *     `quality` sont pilotés à la main et le rendu brut est livré tel quel.
+ */
 export interface GenerationSettings {
-  /** « auto » ou « LARGEURxHAUTEUR ». */
+  /** Post-traitement vers une taille finale exacte. */
+  finalSizeEnabled: boolean;
+  /** Dimensions de l'asset livré, quand `finalSizeEnabled` est actif. */
+  finalWidth: number;
+  finalHeight: number;
+  /** Politique de qualité et de coût. */
+  qualityMode: QualityMode;
+
+  /** Résolution manuelle : « auto » ou « LARGEURxHAUTEUR ». Régime hérité. */
   size: string;
+  /** Qualité manuelle. Régime hérité. */
   quality: ImageQuality;
+
   background: BackgroundMode;
   outputFormat: OutputFormat;
 }

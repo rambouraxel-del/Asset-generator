@@ -5,12 +5,26 @@ import { AppError } from "@/lib/errors";
 import { isApiKeyConfigured } from "@/lib/openai/client";
 import { generateAssetImage } from "@/lib/openai/imageGeneration";
 import { buildAssetPrompt } from "@/lib/prompt/assetPrompt";
-import { parseGenerationInput } from "@/lib/validation/generationInput";
+import {
+  parseGenerationInput,
+  type GenerationInput,
+} from "@/lib/validation/generationInput";
 import {
   validateReferenceBytes,
   validateReferenceSet,
   type ValidatedReferenceImage,
 } from "@/lib/validation/imageFile";
+import { chooseGenerationSize } from "@/lib/generation/generationSizing";
+import {
+  apiQualityFor,
+  describeQualityMode,
+  resolveQualityMode,
+  type QualityMode,
+} from "@/lib/generation/qualityMode";
+import {
+  postProcessToFinalSize,
+  type PostProcessReport,
+} from "@/lib/image/postProcessing";
 import { normalizeImageSize } from "@/lib/validation/imageSize";
 import type { GenerateSuccessResponse } from "@/types/api";
 
@@ -77,9 +91,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       categoryRule: readString(formData, "categoryRule"),
       targetWidth: readOptionalInteger(formData, "targetWidth"),
       targetHeight: readOptionalInteger(formData, "targetHeight"),
+      finalWidth: readOptionalInteger(formData, "finalWidth"),
+      finalHeight: readOptionalInteger(formData, "finalHeight"),
+      qualityMode: readString(formData, "qualityMode") || "auto",
     });
 
-    const size = normalizeImageSize(input.size);
+    const plan = planGeneration(input);
 
     const references = await readReferences(formData);
     validateReferenceSet(references);
@@ -91,6 +108,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       targetWidth: input.targetWidth,
       targetHeight: input.targetHeight,
       categoryRule: input.categoryRule,
+      finalWidth: input.finalWidth,
+      finalHeight: input.finalHeight,
       request: input.request,
       referenceCount: references.length,
       background: input.background,
@@ -99,34 +118,50 @@ export async function POST(request: Request): Promise<NextResponse> {
     const image = await generateAssetImage({
       prompt,
       references,
-      size,
-      quality: input.quality,
+      size: plan.size,
+      quality: plan.apiQuality,
       background: input.background,
-      outputFormat: input.outputFormat,
+      // Le post-traitement travaille sur du PNG : quand une taille finale est
+      // demandée, on impose ce format à l'API (il est de toute façon le bon
+      // choix pour un asset de jeu : sans perte et avec transparence).
+      outputFormat: plan.postProcess ? "png" : input.outputFormat,
     });
+
+    // Post-traitement local : aucun appel réseau, aucun jeton consommé.
+    const delivered = plan.postProcess
+      ? applyPostProcessing(image.base64, plan.finalWidth, plan.finalHeight)
+      : { base64: image.base64, mimeType: image.mimeType, report: null };
 
     // Journal serveur volontairement minimal : ni prompt, ni image, ni clé.
     // Journal serveur volontairement minimal : ni prompt, ni image, ni clé.
     console.info(
-      `[generate] ok model=${image.model} references=${references.length} size=${size} quality=${input.quality}` +
+      `[generate] ok model=${image.model} references=${references.length} size=${plan.size} quality=${plan.apiQuality}` +
+        (plan.postProcess ? ` final=${plan.finalWidth}x${plan.finalHeight}` : "") +
         (image.usage?.totalTokens != null ? ` tokens=${image.usage.totalTokens}` : ""),
     );
 
     const body: GenerateSuccessResponse = {
-      image: { base64: image.base64, mimeType: image.mimeType },
+      image: { base64: delivered.base64, mimeType: delivered.mimeType },
       request: input.request,
       prompt,
       meta: {
         model: image.model,
-        size,
-        quality: input.quality,
+        size: plan.size,
+        quality: plan.apiQuality,
         background: input.background,
-        outputFormat: input.outputFormat,
+        outputFormat: plan.postProcess ? "png" : input.outputFormat,
         referenceCount: references.length,
         generatedAt: new Date().toISOString(),
         categoryName: input.categoryName,
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
+        finalWidth: plan.postProcess ? plan.finalWidth : null,
+        finalHeight: plan.postProcess ? plan.finalHeight : null,
+        qualityMode: input.qualityMode,
+        qualityModeLabel: plan.qualityLabel,
+        generationSize: plan.size,
+        minimalResolution: plan.minimalResolution,
+        postProcessing: delivered.report,
         usage: image.usage,
       },
     };
@@ -145,6 +180,86 @@ export async function POST(request: Request): Promise<NextResponse> {
       status: appError.status,
       headers: { "Cache-Control": "no-store" },
     });
+  }
+}
+
+/**
+ * Plan d'exécution d'une génération : quelle résolution demander à l'API,
+ * quelle qualité, et faut-il post-traiter.
+ *
+ * Toute la décision est prise ici, à partir des seules entrées de la requête.
+ * Aucun état, aucun historique, aucune génération précédente n'y intervient.
+ */
+function planGeneration(input: GenerationInput) {
+  const wantsFinalSize = input.finalWidth !== null && input.finalHeight !== null;
+
+  if (!wantsFinalSize) {
+    // Régime hérité de la V0.2 : réglages manuels, rendu brut livré tel quel.
+    return {
+      postProcess: false as const,
+      size: normalizeImageSize(input.size),
+      apiQuality: input.quality,
+      qualityLabel: null,
+      minimalResolution: false,
+      finalWidth: 0,
+      finalHeight: 0,
+    };
+  }
+
+  const finalWidth = input.finalWidth as number;
+  const finalHeight = input.finalHeight as number;
+
+  const resolvedMode = resolveQualityMode(
+    input.qualityMode as QualityMode,
+    finalWidth,
+    finalHeight,
+  );
+  const choice = chooseGenerationSize(finalWidth, finalHeight, resolvedMode);
+
+  if (choice === null) {
+    throw new AppError("INVALID_SIZE", {
+      detail: `No valid generation size for final ${finalWidth}x${finalHeight}.`,
+      message:
+        "Aucune résolution de génération ne correspond à cette taille finale. Rapprochez les deux côtés l'un de l'autre.",
+    });
+  }
+
+  return {
+    postProcess: true as const,
+    size: choice.size,
+    apiQuality: apiQualityFor(resolvedMode),
+    qualityLabel: describeQualityMode(input.qualityMode as QualityMode, resolvedMode),
+    minimalResolution: choice.minimal,
+    finalWidth,
+    finalHeight,
+  };
+}
+
+/**
+ * Ramène le rendu de l'API à la taille finale exacte.
+ *
+ * Le post-traitement ne doit jamais faire échouer une génération déjà payée :
+ * en cas d'imprévu, on livre le rendu brut et on le signale dans le journal
+ * serveur plutôt que de perdre le résultat.
+ */
+function applyPostProcessing(
+  base64: string,
+  finalWidth: number,
+  finalHeight: number,
+): { base64: string; mimeType: string; report: PostProcessReport | null } {
+  try {
+    const result = postProcessToFinalSize(Buffer.from(base64, "base64"), {
+      finalWidth,
+      finalHeight,
+    });
+    return {
+      base64: result.buffer.toString("base64"),
+      mimeType: "image/png",
+      report: result.report,
+    };
+  } catch (error) {
+    console.error(`[generate] post-processing failed, raw image kept: ${String(error)}`);
+    return { base64, mimeType: "image/png", report: null };
   }
 }
 

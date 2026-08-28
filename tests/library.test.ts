@@ -43,15 +43,22 @@ function makeAsset(id: string, name: string): GeneratedAsset {
     targetHeight: 128,
     request: `Demande ayant produit ${name}`,
     settings: {
-      size: "1024x1024",
-      quality: "high",
+      size: "816x816",
+      quality: "low",
       background: "transparent",
       outputFormat: "png",
       model: "gpt-image-2",
       referenceCount: 2,
+      qualityMode: "auto",
+      qualityModeLabel: "Auto (éco)",
+      minimalResolution: true,
+      postProcessed: true,
     },
     usage: null,
     mimeType: "image/png",
+    // Dimensions de l'image FINALE stockée, pas de la résolution GPT.
+    finalWidth: 16,
+    finalHeight: 16,
     blob: new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
   };
 }
@@ -70,7 +77,7 @@ describe("Bibliothèque — persistance", () => {
     expect(stored.categoryName).toBe("Végétation");
     expect(stored.targetWidth).toBe(96);
     expect(stored.request).toContain("Grand chêne");
-    expect(stored.settings.size).toBe("1024x1024");
+    expect(stored.settings.size).toBe("816x816");
     expect(stored.settings.model).toBe("gpt-image-2");
     // `fake-indexeddb` reconstruit un objet équivalent plutôt qu'une instance
     // de `Blob` : on vérifie donc les données transportées, et la vraie
@@ -101,6 +108,45 @@ describe("Bibliothèque — persistance", () => {
 
     const assets = await listGeneratedAssets();
     expect(assets.map((asset) => asset.name)).toEqual(["B"]);
+  });
+});
+
+describe("Bibliothèque — métadonnées de la V0.2.1", () => {
+  it("conserve la taille finale, la résolution GPT et le mode qualité", async () => {
+    const { putGeneratedAsset, listGeneratedAssets } = await import(
+      "@/lib/storage/generatedAssets"
+    );
+
+    await putGeneratedAsset(makeAsset("asset-1", "Potion bleue"));
+    const [stored] = await listGeneratedAssets();
+
+    // Taille de l'asset livré.
+    expect(stored.finalWidth).toBe(16);
+    expect(stored.finalHeight).toBe(16);
+    // Résolution réellement demandée au modèle : une donnée distincte.
+    expect(stored.settings.size).toBe("816x816");
+    expect(stored.settings.qualityMode).toBe("auto");
+    expect(stored.settings.qualityModeLabel).toBe("Auto (éco)");
+    expect(stored.settings.minimalResolution).toBe(true);
+    expect(stored.settings.postProcessed).toBe(true);
+  });
+
+  it("relit un asset d'avant la V0.2.1 sans champs de taille finale", async () => {
+    const { putGeneratedAsset, listGeneratedAssets } = await import(
+      "@/lib/storage/generatedAssets"
+    );
+
+    const legacy = makeAsset("asset-old", "Asset V0.2");
+    delete (legacy as { finalWidth?: number | null }).finalWidth;
+    delete (legacy as { finalHeight?: number | null }).finalHeight;
+    delete (legacy.settings as { postProcessed?: boolean }).postProcessed;
+
+    await putGeneratedAsset(legacy);
+    const [stored] = await listGeneratedAssets();
+
+    expect(stored.name).toBe("Asset V0.2");
+    expect(stored.finalWidth).toBeUndefined();
+    expect(stored.settings.postProcessed).toBeUndefined();
   });
 });
 

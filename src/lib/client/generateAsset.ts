@@ -36,6 +36,15 @@ export async function requestGeneration(
     payload.targetHeight === null ? "" : String(payload.targetHeight),
   );
 
+  // Taille finale de l'asset livré : c'est elle qui déclenche le
+  // post-traitement local et le calcul automatique de la résolution.
+  const finalSize = payload.settings.finalSizeEnabled
+    ? { width: payload.settings.finalWidth, height: payload.settings.finalHeight }
+    : null;
+  formData.set("finalWidth", finalSize === null ? "" : String(finalSize.width));
+  formData.set("finalHeight", finalSize === null ? "" : String(finalSize.height));
+  formData.set("qualityMode", payload.settings.qualityMode);
+
   for (const reference of payload.references) {
     formData.append("references", reference.blob, reference.name);
   }

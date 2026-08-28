@@ -98,11 +98,23 @@ export const SIZE_CONSTRAINTS = {
 export const IMAGE_QUALITIES = ["auto", "low", "medium", "high"] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 
-/** Réglages de génération par défaut (orientés assets de jeu vidéo). */
+/**
+ * Réglages de génération par défaut (orientés assets de jeu vidéo).
+ *
+ * La taille finale est activée par défaut : c'est le mode qui livre un PNG
+ * directement exploitable dans le jeu, et il économise des jetons puisque la
+ * résolution de génération est choisie au plus juste.
+ */
 export const DEFAULT_GENERATION_SETTINGS = {
-  /** « auto », un preset, ou une résolution libre « LARGEURxHAUTEUR ». */
+  finalSizeEnabled: true,
+  finalWidth: 64,
+  finalHeight: 64,
+  qualityMode: "auto" as string,
+
+  /** Régime hérité : « auto », un preset, ou « LARGEURxHAUTEUR ». */
   size: "1024x1024" as string,
   quality: "high" as ImageQuality,
+
   background: "transparent" as BackgroundMode,
   outputFormat: "png" as OutputFormat,
 } as const;
@@ -113,6 +125,32 @@ export const NAME_LIMITS = {
   CATEGORY_NAME_MAX_CHARS: 40,
   CATEGORY_RULE_MAX_CHARS: 400,
   ASSET_NAME_MAX_CHARS: 80,
+} as const;
+
+/**
+ * Tailles finales proposées en un clic, en pixels.
+ *
+ * Ce sont les dimensions de l'asset LIVRÉ, pas celles demandées au modèle :
+ * `gpt-image-2` ne sait pas produire un 16 × 16, c'est le post-traitement
+ * local qui l'obtient (voir `lib/image/postProcessing.ts`).
+ */
+export const FINAL_SIZE_PRESETS = [
+  { width: 16, height: 16 },
+  { width: 32, height: 32 },
+  { width: 48, height: 48 },
+  { width: 64, height: 64 },
+  { width: 64, height: 96 },
+  { width: 128, height: 128 },
+] as const;
+
+/** Bornes acceptées pour une taille finale saisie librement. */
+export const FINAL_SIZE_LIMITS = {
+  MIN: 1,
+  /**
+   * Au-delà, on sortirait du domaine des assets de jeu et le post-traitement
+   * agrandirait le rendu au lieu de le réduire.
+   */
+  MAX: 2048,
 } as const;
 
 /** Nombre max d'assets conservés dans la bibliothèque locale. */

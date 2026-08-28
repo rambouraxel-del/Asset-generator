@@ -62,11 +62,17 @@ export function LibraryTab({ library }: { library: ReturnType<typeof useLibrary>
                   <img
                     src={library.previews[asset.id]}
                     alt={asset.name}
-                    className="checkerboard aspect-square w-full rounded-lg object-contain"
+                    /*
+                     * `pixelated` : sans cela le navigateur lisse un 16 × 16
+                     * agrandi et l'aperçu ne ressemble plus à l'asset livré.
+                     */
+                    className="checkerboard aspect-square w-full rounded-lg object-contain [image-rendering:pixelated]"
                   />
                   <span className="truncate text-xs font-medium">{asset.name}</span>
                   <span className="truncate text-[11px] text-muted">
-                    {formatDate(asset.createdAt)}
+                    {asset.finalWidth && asset.finalHeight
+                      ? `${asset.finalWidth} × ${asset.finalHeight} px`
+                      : formatDate(asset.createdAt)}
                   </span>
                 </button>
               </li>
@@ -119,7 +125,7 @@ function AssetDetail({
         <img
           src={previewUrl}
           alt={asset.name}
-          className="max-h-[45vh] w-auto max-w-full object-contain"
+          className="max-h-[45vh] w-auto max-w-full object-contain [image-rendering:pixelated]"
         />
       </div>
 
@@ -139,15 +145,30 @@ function AssetDetail({
         <Row label="Style Pack" value={asset.packName} />
         <Row label="Catégorie" value={asset.categoryName ?? "—"} />
         <Row
-          label="Emprise cible"
+          label="Taille finale livrée"
+          value={
+            asset.finalWidth && asset.finalHeight
+              ? `${asset.finalWidth} × ${asset.finalHeight} px`
+              : "rendu brut"
+          }
+        />
+        <Row
+          label="Emprise cible (catégorie)"
           value={
             asset.targetWidth && asset.targetHeight
               ? `${asset.targetWidth} × ${asset.targetHeight} px`
               : "—"
           }
         />
-        <Row label="Résolution générée" value={asset.settings.size} />
-        <Row label="Qualité" value={asset.settings.quality} />
+        <Row label="Résolution de génération" value={formatSize(asset.settings.size)} />
+        <Row
+          label="Qualité"
+          value={asset.settings.qualityModeLabel ?? asset.settings.quality}
+        />
+        <Row
+          label="Post-traitement"
+          value={asset.settings.postProcessed ? "réduction locale sans lissage" : "aucun"}
+        />
         <Row label="Fond" value={asset.settings.background} />
         <Row label="Format" value={asset.settings.outputFormat} />
         <Row label="Modèle" value={asset.settings.model} />
@@ -198,6 +219,12 @@ function Row({ label, value }: { label: string; value: string }) {
       <dd className="truncate text-right">{value}</dd>
     </div>
   );
+}
+
+/** « 816x816 » → « 816 × 816 px ». */
+function formatSize(size: string): string {
+  const match = /^(\d+)x(\d+)$/i.exec(size);
+  return match ? `${match[1]} × ${match[2]} px` : size;
 }
 
 function formatDate(timestamp: number): string {

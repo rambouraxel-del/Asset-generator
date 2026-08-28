@@ -110,17 +110,31 @@ export interface StyleReference {
 
 /** Réglages ayant produit un asset, conservés pour pouvoir les relire. */
 export interface GeneratedAssetSettings {
-  /** Résolution demandée à l'API (« auto » ou « LARGEURxHAUTEUR »). */
+  /** Résolution réellement demandée à l'API (« auto » ou « LARGEURxHAUTEUR »). */
   size: string;
   quality: ImageQuality;
   background: BackgroundMode;
   outputFormat: OutputFormat;
   model: string;
   referenceCount: number;
+  /**
+   * Mode qualité demandé, et son libellé une fois « Auto » résolu.
+   * `null` sur un asset enregistré avant la V0.2.1.
+   */
+  qualityMode?: string | null;
+  qualityModeLabel?: string | null;
+  /** `true` si la résolution retenue était la plus petite compatible. */
+  minimalResolution?: boolean;
+  /** `true` si l'image a été ramenée localement à sa taille finale. */
+  postProcessed?: boolean;
 }
 
 /**
  * Asset rangé dans la bibliothèque.
+ *
+ * Le blob stocké est TOUJOURS l'image finale post-traitée, celle qui est
+ * exploitable dans le jeu. Le rendu brut de l'API n'est jamais conservé : il
+ * n'aurait servi à rien et aurait alourdi le stockage.
  *
  * ATTENTION — c'est un RÉSULTAT. Aucun code du chemin de génération ne doit
  * lire ce type : la bibliothèque est un cul-de-sac, pas une source. Le champ
@@ -139,6 +153,15 @@ export interface GeneratedAsset {
   categoryName: string | null;
   targetWidth: number | null;
   targetHeight: number | null;
+  /**
+   * Dimensions du PNG effectivement stocké.
+   *
+   * C'est la taille de l'asset LIVRÉ, après post-traitement — pas la
+   * résolution de génération, conservée à part dans `settings.size`.
+   * `null` sur un asset enregistré avant la V0.2.1, ou livré en rendu brut.
+   */
+  finalWidth?: number | null;
+  finalHeight?: number | null;
   /** Demande utilisateur ayant produit l'asset. */
   request: string;
   settings: GeneratedAssetSettings;

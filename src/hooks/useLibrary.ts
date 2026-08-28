@@ -37,6 +37,9 @@ export interface NewLibraryAsset {
   categoryName: string | null;
   targetWidth: number | null;
   targetHeight: number | null;
+  /** Dimensions du PNG stocké (version finale post-traitée). */
+  finalWidth: number | null;
+  finalHeight: number | null;
   request: string;
   settings: GeneratedAsset["settings"];
   usage: GeneratedAsset["usage"];

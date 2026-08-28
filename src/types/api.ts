@@ -4,6 +4,7 @@
  */
 
 import type { ErrorCode } from "@/lib/errors";
+import type { PostProcessReport } from "@/lib/image/postProcessing";
 import type { TokenUsage } from "@/types/domain";
 
 /** Réponse de POST /api/generate en cas de succès. */
@@ -31,6 +32,18 @@ export interface GenerateSuccessResponse {
     /** Dimensions cibles de l'asset (contrainte de prompt, pas la résolution). */
     targetWidth: number | null;
     targetHeight: number | null;
+    /** Dimensions du PNG réellement livré. `null` si le rendu brut est livré. */
+    finalWidth: number | null;
+    finalHeight: number | null;
+    /** Mode qualité demandé, et son libellé une fois « Auto » résolu. */
+    qualityMode: string;
+    qualityModeLabel: string | null;
+    /** Résolution réellement demandée au modèle. */
+    generationSize: string;
+    /** `true` si c'était la plus petite résolution compatible. */
+    minimalResolution: boolean;
+    /** Compte rendu du post-traitement local, `null` s'il n'a pas eu lieu. */
+    postProcessing: PostProcessReport | null;
     /** `null` si l'API n'a remonté aucune donnée de consommation. */
     usage: TokenUsage | null;
   };
