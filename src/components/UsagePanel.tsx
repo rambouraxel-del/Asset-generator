@@ -103,8 +103,11 @@ function GenerationSummary({ meta }: { meta: GenerateSuccessResponse["meta"] }) 
       {meta.postProcessing !== null && !meta.postProcessing.empty ? (
         <p className="mt-2 text-xs text-muted">
           Rendu en {meta.postProcessing.sourceWidth} × {meta.postProcessing.sourceHeight},
-          {meta.postProcessing.trimmed ? " détouré," : ""} réduit sans lissage puis
-          recentré sur un canvas de {meta.postProcessing.finalWidth} ×{" "}
+          {meta.postProcessing.trimmed ? " détouré," : ""} réduit, puis nettoyé
+          {meta.postProcessing.cleanup
+            ? ` (palette ${meta.postProcessing.cleanup.palette.coloursBefore} → ${meta.postProcessing.cleanup.palette.coloursAfter} couleurs, contours francs)`
+            : ""}{" "}
+          et recentré sur un canvas de {meta.postProcessing.finalWidth} ×{" "}
           {meta.postProcessing.finalHeight} px. Aucun jeton supplémentaire.
         </p>
       ) : null}

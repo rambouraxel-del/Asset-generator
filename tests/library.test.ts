@@ -55,6 +55,13 @@ function makeAsset(id: string, name: string): GeneratedAsset {
       postProcessed: true,
     },
     usage: null,
+    // Qualité pixel-art mesurée sur le sprite livré (V0.2.2).
+    metrics: {
+      colourCount: 18,
+      alphaLevelCount: 2,
+      semiTransparentPixels: 0,
+      verdict: "propre",
+    },
     mimeType: "image/png",
     // Dimensions de l'image FINALE stockée, pas de la résolution GPT.
     finalWidth: 16,
@@ -131,6 +138,22 @@ describe("Bibliothèque — métadonnées de la V0.2.1", () => {
     expect(stored.settings.postProcessed).toBe(true);
   });
 
+  it("conserve les métriques de qualité pixel-art", async () => {
+    const { putGeneratedAsset, listGeneratedAssets } = await import(
+      "@/lib/storage/generatedAssets"
+    );
+
+    await putGeneratedAsset(makeAsset("asset-1", "Potion bleue"));
+    const [stored] = await listGeneratedAssets();
+
+    expect(stored.metrics).toEqual({
+      colourCount: 18,
+      alphaLevelCount: 2,
+      semiTransparentPixels: 0,
+      verdict: "propre",
+    });
+  });
+
   it("relit un asset d'avant la V0.2.1 sans champs de taille finale", async () => {
     const { putGeneratedAsset, listGeneratedAssets } = await import(
       "@/lib/storage/generatedAssets"
@@ -140,6 +163,7 @@ describe("Bibliothèque — métadonnées de la V0.2.1", () => {
     delete (legacy as { finalWidth?: number | null }).finalWidth;
     delete (legacy as { finalHeight?: number | null }).finalHeight;
     delete (legacy.settings as { postProcessed?: boolean }).postProcessed;
+    delete (legacy as { metrics?: unknown }).metrics;
 
     await putGeneratedAsset(legacy);
     const [stored] = await listGeneratedAssets();
@@ -147,6 +171,7 @@ describe("Bibliothèque — métadonnées de la V0.2.1", () => {
     expect(stored.name).toBe("Asset V0.2");
     expect(stored.finalWidth).toBeUndefined();
     expect(stored.settings.postProcessed).toBeUndefined();
+    expect(stored.metrics).toBeUndefined();
   });
 });
 

@@ -43,6 +43,8 @@ export interface NewLibraryAsset {
   request: string;
   settings: GeneratedAsset["settings"];
   usage: GeneratedAsset["usage"];
+  /** Qualité pixel-art mesurée, `null` pour un rendu brut. */
+  metrics: GeneratedAsset["metrics"];
   mimeType: string;
   blob: Blob;
 }

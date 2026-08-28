@@ -198,32 +198,38 @@ export function translateOpenAIError(error: unknown): AppError {
 /**
  * Image de test renvoyée quand MOCK_OPENAI est actif.
  *
- * C'est un VRAI PNG, aux dimensions réellement demandées, avec de larges
- * marges transparentes autour du motif. Le mode maquette exerce donc toute la
- * chaîne de post-traitement — détourage, réduction, recadrage — et pas
- * seulement l'interface.
+ * C'est un VRAI PNG, aux dimensions réellement demandées, et surtout une image
+ * qui REPRODUIT LE PROBLÈME que la V0.2.2 corrige : contour anti-aliasé,
+ * dégradé interne, ondulation de teinte — autrement dit une illustration lisse,
+ * comme celles que produit GPT-Image-2. Le mode maquette exerce donc toute la
+ * chaîne (détourage, réduction, nettoyage alpha, quantification) et pas
+ * seulement l'interface : un nettoyage cassé se verrait immédiatement.
  */
 function buildMockImage(model: string, size: string): GeneratedImage {
   const { width, height } = parseMockSize(size);
   const image = createTransparentImage(width, height);
 
-  // Disque centré occupant environ la moitié du cadre : le reste est
-  // transparent, ce qui donne au détourage quelque chose à retirer.
   const centreX = width / 2;
   const centreY = height / 2;
-  const radius = Math.min(width, height) * 0.25;
+  const radius = Math.min(width, height) * 0.28;
+  // Bord adouci sur environ 1 % du côté : l'anti-aliasing typique d'un rendu.
+  const feather = Math.max(1, Math.min(width, height) * 0.01);
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const dx = x + 0.5 - centreX;
       const dy = y + 0.5 - centreY;
-      if (dx * dx + dy * dy > radius * radius) continue;
+      const distance = Math.sqrt(dx * dx + dy * dy);
 
+      const coverage = Math.max(0, Math.min(1, (radius - distance) / feather));
+      if (coverage <= 0) continue;
+
+      const t = Math.min(1, distance / radius);
       const offset = (y * width + x) * 4;
-      image.data[offset] = 56;
-      image.data[offset + 1] = 189;
-      image.data[offset + 2] = 248;
-      image.data[offset + 3] = 255;
+      image.data[offset] = clampByte(40 + 150 * (1 - t) + 20 * Math.sin(x / 9));
+      image.data[offset + 1] = clampByte(90 + 120 * (1 - t));
+      image.data[offset + 2] = clampByte(160 + 80 * t);
+      image.data[offset + 3] = Math.round(255 * coverage);
     }
   }
 
@@ -234,6 +240,10 @@ function buildMockImage(model: string, size: string): GeneratedImage {
     // Le mode maquette n'invente pas de consommation : il n'y en a pas eu.
     usage: null,
   };
+}
+
+function clampByte(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 /** Dimensions du PNG de test. « auto » retombe sur un carré standard. */

@@ -10,9 +10,15 @@
  *   1. décodage du PNG renvoyé par l'API ;
  *   2. détection des marges transparentes ;
  *   3. recadrage sur l'asset seul ;
- *   4. réduction au plus proche voisin, sans le moindre lissage ;
- *   5. dépôt sur un canvas transparent aux dimensions exactes ;
- *   6. ré-encodage PNG.
+ *   4. réduction à la taille de l'asset ;
+ *   5. NETTOYAGE PIXEL — alpha, palette, pixels isolés (V0.2.2) ;
+ *   6. dépôt sur un canvas transparent aux dimensions exactes ;
+ *   7. mesure de la qualité pixel-art obtenue ;
+ *   8. ré-encodage PNG.
+ *
+ * L'étape 5 est ce qui distingue un vrai sprite d'un simple fichier à la bonne
+ * dimension : sans elle, la sortie garde les centaines de teintes et les bords
+ * anti-aliasés de l'illustration d'origine.
  *
  * Aucun appel réseau, aucun second passage par un modèle : ce traitement ne
  * consomme pas un seul jeton.
@@ -21,12 +27,21 @@
 
 import { PNG } from "pngjs";
 
+import { PIXEL_CLEANUP } from "@/lib/config";
+import {
+  applyPixelCleanup,
+  defaultCleanupOptions,
+  type PixelCleanupOptions,
+  type PixelCleanupReport,
+} from "@/lib/image/pixelCleanup";
+import { analysePixels, type PixelMetrics } from "@/lib/image/pixelMetrics";
 import {
   composeOnCanvas,
   cropImage,
   createTransparentImage,
   fitWithin,
   findVisibleBounds,
+  resizeAreaAverage,
   resizeNearestNeighbour,
   type Anchor,
   type Bounds,
@@ -45,6 +60,13 @@ export interface PostProcessOptions {
    * rognés, ce qui ne mange jamais un contour translucide.
    */
   alphaThreshold?: number;
+  /**
+   * Méthode de réduction. `area` par défaut (voir `PIXEL_CLEANUP`) ;
+   * `nearest` conserve le comportement strict de la V0.2.1.
+   */
+  downscaleMethod?: "area" | "nearest";
+  /** Réglages du nettoyage pixel. `null` désactive complètement la chaîne. */
+  cleanup?: PixelCleanupOptions | null;
 }
 
 /** Compte rendu du traitement, remonté à l'interface et à la bibliothèque. */
@@ -66,6 +88,12 @@ export interface PostProcessReport {
   scale: number;
   /** `true` si le PNG reçu ne contenait aucun pixel visible. */
   empty: boolean;
+  /** Méthode de réduction réellement employée. */
+  downscaleMethod: "area" | "nearest";
+  /** Compte rendu du nettoyage pixel, `null` si la chaîne est désactivée. */
+  cleanup: PixelCleanupReport | null;
+  /** Mesures de qualité pixel-art du sprite livré. */
+  metrics: PixelMetrics;
 }
 
 export interface PostProcessResult {
@@ -98,11 +126,14 @@ export function postProcessToFinalSize(
   const hasTransparency = containsTransparency(decoded);
   const bounds = findVisibleBounds(decoded, options.alphaThreshold ?? 0);
 
+  const method = options.downscaleMethod ?? PIXEL_CLEANUP.DOWNSCALE_METHOD;
+
   // Image entièrement transparente : on livre un canvas vide plutôt que de
   // faire échouer la génération, et on le signale dans le compte rendu.
   if (bounds === null) {
+    const empty = createTransparentImage(finalWidth, finalHeight);
     return {
-      buffer: encodePng(createTransparentImage(finalWidth, finalHeight)),
+      buffer: encodePng(empty),
       report: {
         sourceWidth: decoded.width,
         sourceHeight: decoded.height,
@@ -115,6 +146,9 @@ export function postProcessToFinalSize(
         finalHeight,
         scale: 0,
         empty: true,
+        downscaleMethod: method,
+        cleanup: null,
+        metrics: analysePixels(empty),
       },
     };
   }
@@ -125,9 +159,26 @@ export function postProcessToFinalSize(
   const cropped = trimmed ? cropImage(decoded, bounds) : decoded;
 
   const fitted = fitWithin(cropped.width, cropped.height, finalWidth, finalHeight);
-  const scaled = resizeNearestNeighbour(cropped, fitted.width, fitted.height);
+
+  const scaled =
+    method === "area"
+      ? resizeAreaAverage(cropped, fitted.width, fitted.height)
+      : resizeNearestNeighbour(cropped, fitted.width, fitted.height);
+
+  // Nettoyage pixel sur la petite image : c'est là qu'il est pertinent et bon
+  // marché, et c'est lui qui supprime les valeurs intermédiaires introduites
+  // par la moyenne de zone.
+  const cleanupOptions =
+    options.cleanup === undefined ? defaultCleanupOptions() : options.cleanup;
+  const cleaned =
+    cleanupOptions === null
+      ? { image: scaled, report: null }
+      : applyPixelCleanup(scaled, cleanupOptions);
+
+  // Le dépôt sur le canvas est une simple recopie de pixels : aucune
+  // interpolation ne peut s'y glisser.
   const composed = composeOnCanvas(
-    scaled,
+    cleaned.image,
     finalWidth,
     finalHeight,
     options.anchor ?? "center",
@@ -147,6 +198,9 @@ export function postProcessToFinalSize(
       finalHeight,
       scale: fitted.scale,
       empty: false,
+      downscaleMethod: method,
+      cleanup: cleaned.report,
+      metrics: analysePixels(composed),
     },
   };
 }

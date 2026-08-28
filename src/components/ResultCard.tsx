@@ -14,6 +14,8 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Field, textInputClasses } from "@/components/ui/Field";
 import { Section } from "@/components/ui/Section";
+import { PixelMetricsPanel } from "@/components/PixelMetricsPanel";
+import { SpritePreview } from "@/components/SpritePreview";
 import { UsagePanel } from "@/components/UsagePanel";
 
 /**
@@ -91,6 +93,14 @@ export function ResultCard({
       finalWidth: result.meta.finalWidth,
       finalHeight: result.meta.finalHeight,
       request: result.request,
+      metrics: result.meta.postProcessing
+        ? {
+            colourCount: result.meta.postProcessing.metrics.colourCount,
+            alphaLevelCount: result.meta.postProcessing.metrics.alphaLevelCount,
+            semiTransparentPixels: result.meta.postProcessing.metrics.semiTransparentPixels,
+            verdict: result.meta.postProcessing.metrics.verdict,
+          }
+        : null,
       settings: {
         size: result.meta.size,
         quality: result.meta.quality as never,
@@ -122,19 +132,18 @@ export function ResultCard({
         referenceCount > 1 ? "s" : ""
       }`}
     >
-      <div className="checkerboard flex items-center justify-center rounded-xl border border-border p-3">
-        {/* Image en data URL locale : `next/image` n'apporte rien ici. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={dataUrl}
-          alt={`Asset généré : ${result.request}`}
-          /*
-           * `pixelated` : un asset de 16 × 16 affiché en grand doit rester
-           * net, sinon l'aperçu ment sur ce qui a été produit.
-           */
-          className="max-h-[55vh] w-auto max-w-full object-contain [image-rendering:pixelated]"
-        />
-      </div>
+      <SpritePreview
+        src={dataUrl}
+        alt={`Asset généré : ${result.request}`}
+        width={result.meta.finalWidth}
+        height={result.meta.finalHeight}
+      />
+
+      {result.meta.postProcessing !== null ? (
+        <div className="mt-3">
+          <PixelMetricsPanel metrics={result.meta.postProcessing.metrics} />
+        </div>
+      ) : null}
 
       <div className="mt-3 rounded-xl bg-surface-muted p-3">
         <p className="text-xs uppercase tracking-wide text-muted">Demande utilisée</p>

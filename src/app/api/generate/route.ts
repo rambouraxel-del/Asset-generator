@@ -137,6 +137,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.info(
       `[generate] ok model=${image.model} references=${references.length} size=${plan.size} quality=${plan.apiQuality}` +
         (plan.postProcess ? ` final=${plan.finalWidth}x${plan.finalHeight}` : "") +
+        (delivered.report
+          ? ` colours=${delivered.report.metrics.colourCount} alphas=${delivered.report.metrics.alphaLevelCount} verdict=${delivered.report.metrics.verdict}`
+          : "") +
         (image.usage?.totalTokens != null ? ` tokens=${image.usage.totalTokens}` : ""),
     );
 

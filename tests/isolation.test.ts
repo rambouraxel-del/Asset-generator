@@ -83,6 +83,12 @@ function makeGeneratedAsset(): GeneratedAsset {
       postProcessed: true,
     },
     usage: null,
+    metrics: {
+      colourCount: 18,
+      alphaLevelCount: 2,
+      semiTransparentPixels: 0,
+      verdict: "propre",
+    },
     mimeType: "image/png",
     finalWidth: 16,
     finalHeight: 16,
@@ -319,5 +325,67 @@ describe("La chaîne V0.2.1 n'introduit aucune fuite de contexte", () => {
         forbidden,
       );
     }
+  });
+});
+
+describe("La chaîne Pixel Cleanup n'introduit aucune fuite de contexte", () => {
+  const pack = makePack();
+  const reference = makeReference();
+
+  it("le nettoyage pixel est purement local : il ne touche pas à la requête", () => {
+    const request = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise",
+      settings: SETTINGS,
+      references: [reference],
+    });
+
+    const serialized = JSON.stringify({
+      ...request,
+      references: request.references.map((entry) => entry.name),
+    });
+
+    // Aucun champ issu du post-traitement ou de l'analyse ne remonte dans la
+    // requête : ce sont des données de SORTIE.
+    for (const forbidden of [
+      "cleanup",
+      "metrics",
+      "verdict",
+      "colourCount",
+      "alphaLevelCount",
+      "downscaleMethod",
+      "palette",
+    ]) {
+      expect(serialized, `champ de sortie présent : ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("les métriques d'un asset enregistré ne le rendent pas utilisable en entrée", () => {
+    const saved = makeGeneratedAsset();
+    expect(saved.metrics?.verdict).toBe("propre");
+    expect(() => assertStyleReference(saved)).toThrow(ForbiddenReferenceError);
+  });
+
+  it("deux générations successives produisent des requêtes indépendantes", () => {
+    const a = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Un grand arbre",
+      settings: { ...SETTINGS, finalWidth: 64, finalHeight: 64 },
+      references: [reference],
+    });
+    const b = buildGenerationRequest({
+      pack,
+      category: null,
+      request: "Une chaise en bois",
+      settings: { ...SETTINGS, finalWidth: 16, finalHeight: 16 },
+      references: [reference],
+    });
+
+    expect(JSON.stringify(b)).not.toContain("arbre");
+    expect(a.settings.finalWidth).toBe(64);
+    expect(b.settings.finalWidth).toBe(16);
+    expect(Object.keys(a).sort()).toEqual(Object.keys(b).sort());
   });
 });

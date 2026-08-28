@@ -46,6 +46,17 @@ export const PROMPT_TEMPLATE = {
     "L'asset doit être conçu pour tenir lisiblement et entièrement dans cette emprise finale. Ne crée pas une scène large. Un seul asset, isolé, entièrement visible, cadré au plus près.",
   finalSizeSmallNotice:
     "À cette très petite taille, privilégie une silhouette nette et lisible, des aplats francs et un contraste marqué : les détails fins seraient perdus.",
+  /*
+   * Consigne de rendu pixel-art natif.
+   *
+   * Le post-traitement local fait l'essentiel du travail : on ne cherche pas à
+   * compenser par du texte. Cette consigne sert seulement à orienter la
+   * COMPOSITION — un sprite pensé pour sa grille se nettoie bien mieux qu'une
+   * illustration détaillée. Elle reste volontairement courte, et n'est ajoutée
+   * que lorsqu'une taille finale est demandée.
+   */
+  pixelArtNotice:
+    "Dessine un véritable sprite pixel-art natif, conçu pour cette grille : aplats de couleur francs, contours nets, palette restreinte. Évite les dégradés mous, les détails sous-pixel, le flou et l'aspect illustration réduite.",
 
   dimensionsHeading: "CONTRAINTES DIMENSIONNELLES :",
   /**
@@ -169,6 +180,7 @@ function buildFinalSizeBlock(width: number | null, height: number | null): strin
   const lines = [
     `${width} × ${height} px`,
     PROMPT_TEMPLATE.finalSizeNotice,
+    PROMPT_TEMPLATE.pixelArtNotice,
   ];
 
   if (Math.max(width, height) <= SMALL_ASSET_MAX_EDGE) {

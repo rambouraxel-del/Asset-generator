@@ -1,4 +1,4 @@
-# Asset Generator — V0.2.1
+# Asset Generator — V0.2.2
 
 Web-app de génération d'**assets graphiques cohérents pour jeu vidéo**, à partir
 de l'API OpenAI GPT Image.
@@ -48,6 +48,32 @@ Les deux familles d'images ne peuvent pas être confondues, à trois niveaux :
 Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 [`library.test.ts`](tests/library.test.ts) verrouillent ces trois barrières.
 
+## Nouveautés de la V0.2.2
+
+**Objectif : que la sortie soit un vrai sprite, pas une illustration réduite.**
+
+La V0.2.1 livrait un PNG à la bonne dimension — mais qui gardait les centaines
+de teintes et les bords anti-aliasés du rendu d'origine. Mesuré sur un rendu
+type ramené en 64 × 64 : **1325 couleurs pour 3220 pixels visibles**, 8 niveaux
+d'alpha, 44 pixels semi-transparents. L'œil y lisait une miniature floue.
+
+La chaîne **Pixel Cleanup** ramène cela à **32 couleurs, 2 niveaux d'alpha,
+0 pixel semi-transparent** — sans un jeton supplémentaire.
+
+| | V0.2.1 | V0.2.2 |
+| --- | --- | --- |
+| Couleurs (64 × 64) | 1325 | **32** |
+| Niveaux d'alpha | 8 | **2** |
+| Pixels semi-transparents | 44 | **0** |
+| Densité de couleurs | 0,41 | **0,01** |
+| Verdict | à surveiller | **propre** |
+
+- **Nettoyage alpha** — poussière invisible effacée, halos supprimés, contours francs.
+- **Réduction de palette** — découpage médian, palette adaptée à l'image.
+- **Suppression des pixels isolés** — les éclats de dégradé rescapés.
+- **Métriques de qualité** — couleurs, alphas, boîte utile, verdict.
+- **Aperçus ×1 et ×8** — en rendu pixelisé, pour juger la netteté réelle.
+
 ## Nouveautés de la V0.2.1
 
 **Objectif : livrer un PNG directement exploitable dans le jeu.**
@@ -88,9 +114,10 @@ un seul jeton supplémentaire**.
 | **Tailwind CSS 4** | Interface mobile-first sans feuille de style séparée. |
 | **SDK officiel `openai`** | Endpoints Images à jour, typage complet, gestion des erreurs et des timeouts. |
 | **localStorage + IndexedDB** | Textes et métadonnées dans `localStorage`, images dans IndexedDB (blobs binaires, quota large). Aucune base distante. |
-| **`pngjs`** | Codec PNG **pur JavaScript, sans dépendance ni binaire natif** : aucune surprise en environnement serverless, et 712 Ko seulement. Les opérations pixel sont écrites à la main pour garantir l'absence de lissage. |
+| **`pngjs`** | Codec PNG **pur JavaScript, sans dépendance ni binaire natif** : aucune surprise en environnement serverless, et 712 Ko seulement. Absent du bundle client. |
+| **Aucune dépendance d'image** | Opérations pixel, quantification (découpage médian) et métriques écrites à la main : la promesse « aucun lissage » reste vérifiable ligne à ligne, et aucune mise à jour ne peut réactiver une interpolation par mégarde. |
 | **Zod** | Validation des entrées côté serveur, source de vérité unique. |
-| **Vitest + fake-indexeddb** | 152 tests, dont la vraie migration IndexedDB v1 → v2 et toute la chaîne de post-traitement sur de vrais PNG. |
+| **Vitest + fake-indexeddb** | 201 tests, dont la vraie migration IndexedDB v1 → v2 et toute la chaîne de nettoyage sur de vrais PNG. |
 
 ## Prérequis
 
@@ -210,18 +237,78 @@ Sans second appel IA, donc **sans jeton supplémentaire** :
 1. décodage du PNG renvoyé par l'API ;
 2. détection des marges transparentes ;
 3. recadrage sur l'asset seul ;
-4. réduction au plus proche voisin — **jamais de lissage** ;
-5. dépôt centré sur un canvas transparent aux dimensions exactes ;
-6. ré-encodage PNG.
-
-Le rééchantillonnage est écrit à la main
-([`pixels.ts`](src/lib/image/pixels.ts)) précisément pour que la promesse
-« aucun anti-aliasing » soit vérifiable : chaque pixel de sortie est la copie
-exacte d'un pixel d'entrée, jamais une moyenne. Les tests interdisent
-l'apparition de toute couleur absente de l'original.
+4. **réduction par moyenne de zone** ;
+5. **nettoyage pixel** — alpha, palette, pixels isolés ;
+6. dépôt centré sur un canvas transparent aux dimensions exactes ;
+7. mesure de la qualité obtenue ;
+8. ré-encodage PNG.
 
 L'ancrage `bottom-center`, utile aux objets posés au sol, existe et est testé
-dans le moteur ; la V0.2.1 n'expose que le centrage dans l'interface.
+dans le moteur ; l'interface n'expose que le centrage.
+
+### Pourquoi une moyenne de zone plutôt que le plus proche voisin
+
+C'est le point technique central de la V0.2.2, et il va à rebours de
+l'intuition.
+
+Le plus proche voisin retient **un** pixel source sur 51 × 51 lors d'une
+réduction ÷ 51. Sur une illustration lisse — ce que produit GPT-Image-2 — ce
+tirage est arbitraire : il attrape au hasard un pixel de dégradé ou un pixel de
+bord anti-aliasé. Le sprite obtenu est bruité, riche en couleurs et parsemé de
+semi-transparences. **Le plus proche voisin est donc lui-même une cause du
+« faux pixel art »**, pas un remède.
+
+La moyenne de zone intègre toute l'information du bloc source : la silhouette
+est fidèle et stable. Elle produit des valeurs intermédiaires — mais celles-ci
+sont immédiatement supprimées par le nettoyage qui suit. **L'image finale ne
+contient donc ni dégradé mou ni bord flou**, ce que les tests vérifient
+directement sur les pixels livrés.
+
+Le mode `nearest` strict reste disponible et testé
+([`PIXEL_CLEANUP.DOWNSCALE_METHOD`](src/lib/config.ts)). Le dépôt sur le canvas
+final et les aperçus zoomés restent, eux, de pures recopies de pixels : aucune
+interpolation ne peut s'y glisser.
+
+### Chaîne Pixel Cleanup
+
+Trois traitements, dans cet ordre précis
+([`pixelCleanup.ts`](src/lib/image/pixelCleanup.ts)) :
+
+| Étape | Rôle | Réglages par défaut |
+| --- | --- | --- |
+| **Alpha** | efface la poussière invisible, supprime les halos quasi opaques, ramène les contours sur des paliers francs | efface < 24, opacifie > 200, 2 paliers |
+| **Palette** | réduit aux teintes structurantes par découpage médian | 32 couleurs max, ignoré sous 24 |
+| **Pixels isolés** | retire les éclats sans aucun voisin visible | actif |
+
+L'ordre compte : nettoyer l'alpha d'abord évite de faire entrer dans la palette
+la couleur de pixels voués à disparaître ; retirer les pixels isolés en dernier
+permet de juger l'isolement sur l'image déjà assainie.
+
+Le découpage médian construit une palette **adaptée à l'image** plutôt que de
+l'écraser sur une grille fixe. Aucun tramage n'est appliqué : le tramage sert à
+simuler des teintes absentes, ce qui produirait exactement le bruit que l'on
+cherche à supprimer.
+
+Tout est réglable depuis [`PIXEL_CLEANUP`](src/lib/config.ts), d'un seul endroit.
+
+### Métriques et verdict
+
+Chaque sprite livré est mesuré : couleurs, niveaux d'alpha, pixels
+semi-transparents, boîte utile, couverture, et **densité de couleurs** —
+le rapport entre couleurs distinctes et pixels visibles. Proche de 1, chaque
+pixel a sa propre teinte : c'est la signature d'une illustration réduite.
+
+Le verdict — *propre*, *acceptable*, *à surveiller*, *trop lissé* — retient le
+pire des deux critères (couleurs et alpha). Les seuils sont regroupés et
+documentés dans [`VERDICT_THRESHOLDS`](src/lib/image/pixelMetrics.ts), pas
+dispersés dans le code.
+
+### Aperçus ×1 et ×8
+
+L'aperçu 1:1 montre ce que le jeu affichera. Le zoom ×8 est le seul moyen de
+juger la qualité pixel-art : si le sprite est propre, on y voit des carrés nets.
+`image-rendering: pixelated` est appliqué aux deux — sans lui le navigateur
+interpolerait, et l'aperçu mentirait sur ce qui a été produit.
 
 ### Contraintes de résolution de `gpt-image-2`
 
@@ -361,7 +448,11 @@ src/
 │   │   ├── generationSizing.ts     Choix automatique de la résolution GPT
 │   │   └── qualityMode.ts          Modes qualité et politique de coût
 │   ├── image/
-│   │   ├── pixels.ts               Opérations pixel, sans lissage possible
+│   │   ├── pixels.ts               Opérations pixel (nearest, moyenne de zone)
+│   │   ├── alphaCleanup.ts         Seuils d'alpha, pixels isolés
+│   │   ├── paletteQuantization.ts  Découpage médian
+│   │   ├── pixelCleanup.ts         Orchestration de la chaîne
+│   │   ├── pixelMetrics.ts         Mesures et verdict
 │   │   └── postProcessing.ts       Chaîne complète vers la taille finale
 │   ├── prompt/assetPrompt.ts       Construction du prompt (point d'extension)
 │   ├── openai/                     Client (server-only) + appel Images
@@ -371,7 +462,7 @@ src/
 ├── types/
 │   ├── domain.ts                   StyleReference ≠ GeneratedAsset
 │   └── api.ts                      Contrat navigateur ↔ serveur
-tests/                              152 tests
+tests/                              201 tests
 ```
 
 ## Sécurité
@@ -384,10 +475,10 @@ tests/                              152 tests
 - Messages d'erreur lisibles côté client ; détails techniques uniquement dans la
   console serveur — jamais la clé, jamais le prompt, jamais le base64 complet.
 
-## Volontairement absent de la V0.2.1
+## Volontairement absent de la V0.2.2
 
 Comptes utilisateurs, authentification, synchronisation cloud, base distante,
 sélection automatique des références par IA, RAG, mémoire, apprentissage,
-fine-tuning, validation visuelle automatique, réduction de palette, spritesheets,
-animations, génération par lots, export/import, éditeur d'ancrage, suppression
-d'arrière-plan par un second modèle.
+fine-tuning, validation visuelle par IA, palette fixe par Style Pack,
+spritesheets, animations, génération par lots, export/import, éditeur
+d'ancrage, suppression d'arrière-plan par un second modèle.

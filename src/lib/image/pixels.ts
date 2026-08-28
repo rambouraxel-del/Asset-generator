@@ -143,6 +143,85 @@ export function resizeNearestNeighbour(
 }
 
 /**
+ * Réduction par moyenne de zone (« box filter »), en alpha prémultiplié.
+ *
+ * ---------------------------------------------------------------------------
+ * POURQUOI CETTE MÉTHODE POUR LA RÉDUCTION
+ * ---------------------------------------------------------------------------
+ * Le plus proche voisin retient UN pixel source sur 51 × 51 lors d'une
+ * réduction ÷ 51. Sur une illustration lisse — ce que produit GPT-Image-2 — ce
+ * tirage est arbitraire : il attrape au hasard un pixel de dégradé ou un pixel
+ * de bord anti-aliasé, et le sprite obtenu est bruité, riche en couleurs et
+ * parsemé de semi-transparences. C'est exactement l'effet « illustration
+ * réduite » que la V0.2.2 doit supprimer.
+ *
+ * La moyenne de zone intègre au contraire toute l'information du bloc source :
+ * la silhouette est fidèle et stable. Elle produit certes des valeurs
+ * intermédiaires — mais celles-ci sont immédiatement supprimées par le
+ * nettoyage pixel (seuillage alpha puis quantification de palette), si bien que
+ * l'image FINALE ne contient ni dégradé mou ni bord flou.
+ *
+ * L'alpha est prémultiplié avant moyenne : sans cela, les pixels transparents
+ * (dont le RVB vaut souvent 0) assombriraient les bords de l'asset et
+ * créeraient un liseré noir.
+ * ---------------------------------------------------------------------------
+ */
+export function resizeAreaAverage(
+  image: RgbaImage,
+  targetWidth: number,
+  targetHeight: number,
+): RgbaImage {
+  if (targetWidth <= 0 || targetHeight <= 0) {
+    throw new Error("Les dimensions cibles doivent être strictement positives.");
+  }
+
+  const result = createTransparentImage(targetWidth, targetHeight);
+  const scaleX = image.width / targetWidth;
+  const scaleY = image.height / targetHeight;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    const startY = Math.floor(y * scaleY);
+    const endY = Math.max(startY + 1, Math.min(image.height, Math.ceil((y + 1) * scaleY)));
+
+    for (let x = 0; x < targetWidth; x += 1) {
+      const startX = Math.floor(x * scaleX);
+      const endX = Math.max(startX + 1, Math.min(image.width, Math.ceil((x + 1) * scaleX)));
+
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+      let alpha = 0;
+      let samples = 0;
+
+      for (let sourceY = startY; sourceY < endY; sourceY += 1) {
+        for (let sourceX = startX; sourceX < endX; sourceX += 1) {
+          const offset = (sourceY * image.width + sourceX) * 4;
+          const a = image.data[offset + 3];
+          // Prémultiplication : un pixel transparent ne doit peser sur aucune
+          // composante de couleur.
+          red += image.data[offset] * a;
+          green += image.data[offset + 1] * a;
+          blue += image.data[offset + 2] * a;
+          alpha += a;
+          samples += 1;
+        }
+      }
+
+      const target = (y * targetWidth + x) * 4;
+      if (alpha === 0 || samples === 0) continue;
+
+      // Démultiplication : on repasse en couleur droite.
+      result.data[target] = Math.round(red / alpha);
+      result.data[target + 1] = Math.round(green / alpha);
+      result.data[target + 2] = Math.round(blue / alpha);
+      result.data[target + 3] = Math.round(alpha / samples);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Dépose l'image sur un canvas transparent aux dimensions exactes demandées.
  *
  * L'ancrage `bottom-center` sert aux objets posés au sol (arbre, personnage,

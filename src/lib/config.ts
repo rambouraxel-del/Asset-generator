@@ -153,6 +153,56 @@ export const FINAL_SIZE_LIMITS = {
   MAX: 2048,
 } as const;
 
+/**
+ * Réglages de la chaîne « Pixel Cleanup » (V0.2.2).
+ *
+ * ---------------------------------------------------------------------------
+ * LE PROBLÈME TRAITÉ
+ * ---------------------------------------------------------------------------
+ * GPT-Image-2 produit une illustration lisse : dégradés, bords anti-aliasés,
+ * des centaines de teintes. Réduite telle quelle, elle donne un fichier à la
+ * bonne dimension mais qui ne ressemble pas à un sprite — mesuré sur un rendu
+ * type ramené en 64 × 64 : plus de 1300 couleurs pour 3200 pixels visibles.
+ *
+ * Ces constantes pilotent le nettoyage qui ramène la sortie à un vrai rendu
+ * pixel-art. Elles sont regroupées ici pour être ajustables d'un seul endroit.
+ * ---------------------------------------------------------------------------
+ */
+export const PIXEL_CLEANUP = {
+  /**
+   * Méthode de réduction depuis le rendu GPT.
+   *
+   * `area` (défaut) intègre tout le bloc source : silhouette fidèle et stable.
+   * `nearest` retient un pixel sur N, ce qui sur une source lisse produit un
+   * tirage arbitraire et bruité — c'est une des causes du « faux pixel art ».
+   * Les valeurs intermédiaires créées par `area` sont supprimées juste après
+   * par le seuillage alpha et la quantification.
+   */
+  DOWNSCALE_METHOD: "area" as "area" | "nearest",
+
+  ALPHA: {
+    /** En dessous : pixel effacé (poussière invisible). */
+    INVISIBLE_BELOW: 24,
+    /** Au-dessus : pixel rendu totalement opaque (halo terne). */
+    OPAQUE_ABOVE: 200,
+    /** Paliers d'alpha autorisés. 2 = transparence binaire, la plus nette. */
+    LEVELS: 2,
+  },
+
+  PALETTE: {
+    /** Couleurs maximales conservées dans le sprite final. */
+    MAX_COLOURS: 32,
+    /** En dessous de ce nombre de couleurs, l'image est laissée intacte. */
+    SKIP_BELOW_COLOURS: 24,
+  },
+
+  /** Supprime les pixels visibles sans aucun voisin visible (bruit résiduel). */
+  REMOVE_ISOLATED_PIXELS: true,
+} as const;
+
+/** Facteur du second aperçu, destiné à juger la netteté pixel par pixel. */
+export const PREVIEW_ZOOM_FACTOR = 8;
+
 /** Nombre max d'assets conservés dans la bibliothèque locale. */
 export const LIBRARY_MAX_ASSETS = 500;
 

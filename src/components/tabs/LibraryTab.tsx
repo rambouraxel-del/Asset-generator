@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { textInputClasses } from "@/components/ui/Field";
 import { Section } from "@/components/ui/Section";
+import { SpritePreview } from "@/components/SpritePreview";
 
 /**
  * Onglet Bibliothèque — assets générés.
@@ -120,14 +121,13 @@ function AssetDetail({
         </Button>
       }
     >
-      <div className="checkerboard flex items-center justify-center rounded-xl border border-border p-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={previewUrl}
-          alt={asset.name}
-          className="max-h-[45vh] w-auto max-w-full object-contain [image-rendering:pixelated]"
-        />
-      </div>
+      {/* Consultation détaillée : aperçu natif ET zoom, comme après génération. */}
+      <SpritePreview
+        src={previewUrl}
+        alt={asset.name}
+        width={asset.finalWidth ?? null}
+        height={asset.finalHeight ?? null}
+      />
 
       <div className="mt-3">
         <input
@@ -167,8 +167,15 @@ function AssetDetail({
         />
         <Row
           label="Post-traitement"
-          value={asset.settings.postProcessed ? "réduction locale sans lissage" : "aucun"}
+          value={asset.settings.postProcessed ? "nettoyage pixel-art" : "aucun"}
         />
+        {asset.metrics ? (
+          <>
+            <Row label="Couleurs" value={String(asset.metrics.colourCount)} />
+            <Row label="Niveaux d'alpha" value={String(asset.metrics.alphaLevelCount)} />
+            <Row label="Qualité pixel-art" value={asset.metrics.verdict} />
+          </>
+        ) : null}
         <Row label="Fond" value={asset.settings.background} />
         <Row label="Format" value={asset.settings.outputFormat} />
         <Row label="Modèle" value={asset.settings.model} />

@@ -108,6 +108,19 @@ export interface StyleReference {
 /* Assets générés — SORTIE                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Mesures de qualité pixel-art conservées avec un asset.
+ *
+ * Utile pour repérer plus tard les assets à régénérer, sans avoir à réanalyser
+ * toute la bibliothèque. `null` sur un asset enregistré avant la V0.2.2.
+ */
+export interface GeneratedAssetMetrics {
+  colourCount: number;
+  alphaLevelCount: number;
+  semiTransparentPixels: number;
+  verdict: string;
+}
+
 /** Réglages ayant produit un asset, conservés pour pouvoir les relire. */
 export interface GeneratedAssetSettings {
   /** Résolution réellement demandée à l'API (« auto » ou « LARGEURxHAUTEUR »). */
@@ -166,6 +179,8 @@ export interface GeneratedAsset {
   request: string;
   settings: GeneratedAssetSettings;
   usage: TokenUsage | null;
+  /** Qualité pixel-art mesurée sur le sprite livré. */
+  metrics?: GeneratedAssetMetrics | null;
   mimeType: string;
   blob: Blob;
 }
