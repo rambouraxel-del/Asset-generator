@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useAppState } from "@/hooks/useAppState";
+import { useCharacterSheet } from "@/hooks/useCharacterSheet";
 import { useGeneration } from "@/hooks/useGeneration";
 import { useLibrary } from "@/hooks/useLibrary";
 import type { StatusResponse } from "@/types/api";
@@ -29,6 +30,9 @@ export function AssetGeneratorApp() {
   // La comptabilisation de l'usage appartient à l'état applicatif, pas au
   // hook de génération : celui-ci se contente de remonter la donnée réelle.
   const generation = useGeneration({ onUsage: state.recordUsage });
+  // Deux états de génération distincts : basculer de mode n'efface pas le
+  // travail en cours dans l'autre.
+  const sheet = useCharacterSheet({ onUsage: state.recordUsage });
   const library = useLibrary();
 
   const [tab, setTab] = useState<TabId>("generate");
@@ -97,6 +101,7 @@ export function AssetGeneratorApp() {
         {tab === "generate" ? (
           <GenerateTab
             generation={generation}
+            sheet={sheet}
             library={library}
             rates={state.pricingRates}
           />

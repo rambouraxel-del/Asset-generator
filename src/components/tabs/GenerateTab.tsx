@@ -26,6 +26,16 @@ import {
 } from "@/components/FinalSizeSelector";
 import { SizeSelector } from "@/components/SizeSelector";
 import { ResultCard } from "@/components/ResultCard";
+import { CharacterSheetPanel } from "@/components/character/CharacterSheetPanel";
+import type { useCharacterSheet } from "@/hooks/useCharacterSheet";
+
+/** Les deux parcours proposés à l'utilisateur. */
+type GenerationMode = "single" | "sheet";
+
+const MODES: ReadonlyArray<{ id: GenerationMode; label: string; hint: string }> = [
+  { id: "single", label: "Asset unique", hint: "Un objet, une image" },
+  { id: "sheet", label: "Planche de personnage", hint: "Face, dos et profils" },
+];
 
 const QUALITY_LABELS: Record<string, string> = {
   auto: "Auto",
@@ -60,14 +70,17 @@ const FORMAT_LABELS: Record<string, string> = {
  */
 export function GenerateTab({
   generation,
+  sheet,
   library,
   rates,
 }: {
   generation: ReturnType<typeof useGeneration>;
+  sheet: ReturnType<typeof useCharacterSheet>;
   library: ReturnType<typeof useLibrary>;
   rates: PricingRates | null;
 }) {
   const state = useAppState();
+  const [mode, setMode] = useState<GenerationMode>("single");
   const [request, setRequest] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
   // Saisie libre de la taille finale, conservée pendant la frappe.
@@ -82,6 +95,48 @@ export function GenerateTab({
 
   const pack = state.activePack;
   if (pack === null) return null;
+
+  /*
+   * Le sélecteur de mode est rendu au-dessus des deux parcours. « Asset unique »
+   * est le mode par défaut et reste strictement identique à ce qu'il était :
+   * aucun réglage n'est partagé entre les deux branches, hormis le Style Pack
+   * actif et ses références.
+   */
+  const modeSelector = (
+    <div
+      className="grid grid-cols-2 gap-2 rounded-2xl border border-border bg-surface p-2"
+      role="radiogroup"
+      aria-label="Mode de génération"
+    >
+      {MODES.map((entry) => (
+        <button
+          key={entry.id}
+          type="button"
+          role="radio"
+          aria-checked={mode === entry.id}
+          onClick={() => setMode(entry.id)}
+          className={[
+            "min-h-11 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+            mode === entry.id
+              ? "bg-accent text-accent-foreground"
+              : "text-muted hover:bg-surface-muted",
+          ].join(" ")}
+        >
+          {entry.label}
+          <span className="mt-0.5 block text-xs font-normal opacity-80">{entry.hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  if (mode === "sheet") {
+    return (
+      <div className="flex flex-col gap-4">
+        {modeSelector}
+        <CharacterSheetPanel sheet={sheet} library={library} rates={rates} />
+      </div>
+    );
+  }
 
   const category = pack.categories.find((entry) => entry.id === categoryId) ?? null;
   /*
@@ -124,6 +179,8 @@ export function GenerateTab({
 
   return (
     <div className="flex flex-col gap-4">
+      {modeSelector}
+
       <Section
         step="1"
         title="Demande"

@@ -10,6 +10,12 @@ import {
   type GenerationInput,
 } from "@/lib/validation/generationInput";
 import {
+  readFormData,
+  readOptionalInteger,
+  readOptionalString,
+  readString,
+} from "@/lib/validation/formData";
+import {
   validateReferenceBytes,
   validateReferenceSet,
   type ValidatedReferenceImage,
@@ -283,42 +289,6 @@ function applyPostProcessing(
     console.error(`[generate] post-processing failed, raw image kept: ${String(error)}`);
     return { base64, mimeType: "image/png", report: null };
   }
-}
-
-async function readFormData(request: Request): Promise<FormData> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.includes("multipart/form-data")) {
-    throw new AppError("INVALID_REQUEST", {
-      detail: `Unexpected content-type: ${contentType || "(none)"}`,
-    });
-  }
-
-  try {
-    return await request.formData();
-  } catch (error) {
-    // Un corps tronqué par un plafond de plateforme atterrit typiquement ici.
-    throw new AppError("PAYLOAD_TOO_LARGE", {
-      detail: `Could not parse multipart body: ${String(error)}`,
-    });
-  }
-}
-
-function readString(formData: FormData, key: string): string {
-  const value = formData.get(key);
-  return typeof value === "string" ? value : "";
-}
-
-/** Chaîne vide et champ absent valent tous deux « non renseigné ». */
-function readOptionalString(formData: FormData, key: string): string | null {
-  const value = readString(formData, key).trim();
-  return value === "" ? null : value;
-}
-
-function readOptionalInteger(formData: FormData, key: string): number | null {
-  const raw = readOptionalString(formData, key);
-  if (raw === null) return null;
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function readReferences(formData: FormData): Promise<ValidatedReferenceImage[]> {

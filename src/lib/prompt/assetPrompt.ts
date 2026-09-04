@@ -97,11 +97,48 @@ export const PROMPT_TEMPLATE = {
     "utiliser les références uniquement comme guide graphique.",
   ],
 
+  /*
+   * Planche de personnage.
+   *
+   * La consigne est volontairement courte et impérative : l'expérience montre
+   * qu'un long paragraphe dilue les points qui comptent vraiment ici —
+   * l'identité du personnage, l'échelle et la position des pieds. Le reste du
+   * travail est fait en local par la normalisation, pas par le texte.
+   */
+  sheetHeading: "PLANCHE DE PERSONNAGE :",
+  sheetInstruction:
+    "Le même personnage que la référence, décliné en vues face, dos et profil gauche. Identité, tête, proportions, vêtements, palette, échelle et position des pieds strictement cohérents. Une pose neutre par cellule, fond transparent, aucun décor ni ombre.",
+  sheetLayoutHeading: "DISPOSITION IMPOSÉE :",
+  /** Remplace `finalSizeNotice`, qui exige « un seul asset ». */
+  sheetFinalSizeNotice:
+    "Cette emprise est celle de la planche entière : chaque cellule occupe exactement un quart de l'image. Chaque personnage doit tenir lisiblement et entièrement dans sa cellule, cadré au plus près, jamais coupé.",
+  sheetConstraints: [
+    "Une seule image, divisée en quatre cellules carrées égales, en grille 2 × 2.",
+    "Cellule en haut à gauche : vue de FACE (le personnage regarde vers le bas de l'écran).",
+    "Cellule en haut à droite : vue de DOS (le personnage regarde vers le haut de l'écran).",
+    "Cellule en bas à gauche : PROFIL GAUCHE (le personnage regarde vers la gauche).",
+    "Cellule en bas à droite : répète le PROFIL GAUCHE à l'identique.",
+    "Chaque personnage est centré horizontalement dans sa cellule.",
+    "Les pieds des quatre vues reposent exactement sur la même ligne horizontale au sein de leur cellule.",
+    "Les quatre vues ont exactement la même hauteur de personnage.",
+    "Aucune bordure, aucun séparateur, aucune numérotation entre les cellules.",
+  ],
+
   transparentBackgroundNotice:
     "Le fond doit être entièrement transparent, sans ombre portée sur le sol ni décor autour de l'asset.",
   opaqueBackgroundNotice:
     "Le fond doit être opaque et uni, sans décor autour de l'asset.",
 } as const;
+
+/**
+ * Contraintes qui n'ont de sens qu'en mode Asset unique. En mode planche, le
+ * livrable EST une grille de quatre vues : les laisser contredirait la
+ * disposition demandée juste au-dessus.
+ */
+const SINGLE_ASSET_ONLY: ReadonlySet<string> = new Set<string>([
+  PROMPT_TEMPLATE.constraints[0],
+  PROMPT_TEMPLATE.constraints[2],
+]);
 
 export interface AssetPromptInput {
   /** Contexte du Style Pack actif (peut être vide). */
@@ -132,6 +169,12 @@ export interface AssetPromptInput {
   referenceCount: number;
   /** Mode de fond demandé : ajoute une consigne explicite. */
   background?: "transparent" | "opaque" | "auto";
+  /**
+   * Mode planche de personnage : remplace les consignes « un seul asset » par
+   * la disposition 2 × 2 attendue. `false` (défaut) laisse le mode Asset unique
+   * strictement inchangé.
+   */
+  characterSheet?: boolean;
 }
 
 /**
@@ -164,6 +207,7 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
   const finalSize = buildFinalSizeBlock(
     input.finalWidth ?? null,
     input.finalHeight ?? null,
+    input.characterSheet === true,
   );
   if (finalSize !== null) {
     blocks.push(`${PROMPT_TEMPLATE.finalSizeHeading}\n${finalSize}`);
@@ -187,9 +231,27 @@ export function buildAssetPrompt(input: AssetPromptInput): string {
     blocks.push(`${PROMPT_TEMPLATE.dimensionsHeading}\n${dimensions}`);
   }
 
+  if (input.characterSheet === true) {
+    blocks.push(`${PROMPT_TEMPLATE.sheetHeading}\n${PROMPT_TEMPLATE.sheetInstruction}`);
+    blocks.push(
+      `${PROMPT_TEMPLATE.sheetLayoutHeading}\n${PROMPT_TEMPLATE.sheetConstraints
+        .map((line) => `- ${line}`)
+        .join("\n")}`,
+    );
+  }
+
   blocks.push(`${PROMPT_TEMPLATE.assetHeading}\n${request}`);
 
-  const constraints: string[] = [...PROMPT_TEMPLATE.constraints].map((line) => `- ${line}`);
+  /*
+   * En mode planche, plusieurs contraintes générales deviennent fausses : on
+   * demande précisément quatre vues et une grille de variantes. Les remplacer
+   * évite d'envoyer au modèle deux consignes contradictoires.
+   */
+  const baseConstraints = input.characterSheet === true
+    ? PROMPT_TEMPLATE.constraints.filter((line) => !SINGLE_ASSET_ONLY.has(line))
+    : PROMPT_TEMPLATE.constraints;
+
+  const constraints: string[] = [...baseConstraints].map((line) => `- ${line}`);
   if (input.background === "transparent") {
     constraints.push(`- ${PROMPT_TEMPLATE.transparentBackgroundNotice}`);
   } else if (input.background === "opaque") {
@@ -229,12 +291,18 @@ function buildLogicalGridBlock(
  * Une consigne supplémentaire est ajoutée sous 48 px : à cette échelle, un
  * rendu détaillé devient illisible après réduction.
  */
-function buildFinalSizeBlock(width: number | null, height: number | null): string | null {
+function buildFinalSizeBlock(
+  width: number | null,
+  height: number | null,
+  characterSheet = false,
+): string | null {
   if (width === null || height === null) return null;
 
   const lines = [
     `${width} × ${height} px`,
-    PROMPT_TEMPLATE.finalSizeNotice,
+    characterSheet
+      ? PROMPT_TEMPLATE.sheetFinalSizeNotice
+      : PROMPT_TEMPLATE.finalSizeNotice,
     PROMPT_TEMPLATE.pixelArtNotice,
   ];
 

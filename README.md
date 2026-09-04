@@ -1,7 +1,14 @@
-# Asset Generator — V0.2.3
+# Asset Generator — V0.2.4
 
 Web-app de génération d'**assets graphiques cohérents pour jeu vidéo**, à partir
 de l'API OpenAI GPT Image.
+
+Deux modes de travail :
+
+| Mode | Ce qu'il produit |
+| --- | --- |
+| **Asset unique** | Un objet, une image, à la taille finale exacte demandée. |
+| **Planche de personnage** | Les quatre orientations d'un même personnage, alignées entre elles. |
 
 Vous définissez un ou plusieurs **Style Packs** (contexte graphique, images de
 référence, catégories d'assets), puis vous décrivez l'asset voulu. L'application
@@ -17,13 +24,15 @@ Style Pack actif + règles de catégorie/dimensions + références actives + dem
 
 C'est la contrainte centrale du projet, garantie par construction :
 
-- la route `/api/generate` est **totalement sans état** — aucune session, aucun
-  cache, aucun historique, aucun fichier écrit entre deux appels ;
+- les routes `/api/generate` et `/api/generate-sheet` sont **totalement sans
+  état** — aucune session, aucun cache, aucun historique, aucun fichier écrit
+  entre deux appels ;
 - l'endpoint `/v1/images` d'OpenAI est « one-shot » : contrairement à l'API
   Responses, il n'expose ni `conversation` ni `previous_response_id` ;
-- tout ce qui part vers l'API passe par une seule fonction pure,
-  [`buildGenerationRequest`](src/lib/generation/payload.ts), qui ne reçoit que
-  les entrées autorisées ;
+- tout ce qui part vers l'API passe par une fonction pure —
+  [`buildGenerationRequest`](src/lib/generation/payload.ts) pour un asset unique,
+  [`buildSheetRequest`](src/lib/generation/sheetPayload.ts) pour une planche —
+  qui ne reçoit que les entrées autorisées ;
 - « Régénérer » rejoue l'instantané d'origine à l'identique, sans transmettre le
   résultat précédent ;
 - un asset **généré ou enregistré dans la bibliothèque ne devient jamais une
@@ -47,6 +56,98 @@ Les deux familles d'images ne peuvent pas être confondues, à trois niveaux :
 
 Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 [`library.test.ts`](tests/library.test.ts) verrouillent ces trois barrières.
+
+## Nouveautés de la V0.2.4 — planche de personnage
+
+**Le problème.** Générées séparément, les orientations d'un même personnage ne
+gardent ni la même taille ni la même ligne de pieds. Relevé en production sur des
+cellules de 48 × 48 :
+
+| Vue | Boîte utile | Pieds |
+| --- | --- | --- |
+| Face | 20 × 44 | Y = 45 |
+| Dos | 16 × 42 | Y = 44 |
+| Profil | 16 × 40 | Y = 43 |
+
+En jeu, le personnage « saute » à chaque changement de direction.
+
+**La réponse, en trois temps :**
+
+1. **Une seule planche.** Face, dos et profil gauche sont demandés ensemble, en
+   grille 2 × 2 de 96 × 96 px (soit quatre cellules de 48 × 48). Générées dans
+   la même image, les vues partagent déjà bien mieux l'échelle et l'identité.
+2. **Normalisation locale.** Chaque cellule est ensuite recadrée, replacée sur la
+   ligne de pieds et centrée, **sans lissage** : le plus proche voisin, et
+   seulement si l'écart de hauteur dépasse 1 px.
+3. **Miroir exact.** Le profil droit est le miroir pixel à pixel du gauche, donc
+   cohérent par construction. Une option permet de le faire générer séparément
+   (personnage asymétrique, arme portée d'un seul côté).
+
+### Le sprite maître fait loi
+
+Vous fournissez un **sprite maître** — un PNG de 48 × 48 px déjà validé, importé
+ou repris de la bibliothèque — et vous indiquez l'orientation qu'il représente.
+
+- Sa vue est **livrée telle quelle, identique au pixel près**. La cellule que le
+  modèle a produite pour cette direction est écartée : elle n'a servi qu'à donner
+  du contexte aux autres vues.
+- C'est **de lui** que sont dérivées la hauteur visuelle et la ligne de pieds
+  visées, pas d'une constante. Si ses pieds ne tombent pas sur la ligne standard
+  Y = 45, l'écart est **signalé** et les autres vues s'alignent sur le maître :
+  mieux vaut un personnage cohérent qu'un maître déplacé en douce.
+- S'il contient des pixels semi-transparents, ils sont **signalés, pas corrigés**,
+  et sa cellule passe au rouge. Corriger reviendrait à modifier le maître.
+- Le maître **n'est jamais remplacé** par une vue générée, et refuser une planche
+  ne l'efface pas.
+
+### Contrôle avant export
+
+Chaque vue affiche ses mesures — canevas, boîte utile, centre horizontal, ligne
+de pieds, hauteur visuelle, couleurs, niveaux d'alpha, pixels visibles — et un
+statut :
+
+| Statut | Condition |
+| --- | --- |
+| 🟢 Aligné | hauteur à ±1 px **et** pieds parfaitement alignés |
+| 🟠 À vérifier | écart de hauteur de 2 px |
+| 🔴 Non conforme | écart > 2 px, pieds décalés, canevas faux, ou alpha partiel |
+
+S'y ajoutent l'aperçu 1:1 et l'aperçu ×8 de chaque vue, et surtout la
+**comparaison par alternance** : deux vues affichées successivement au même
+endroit. Côte à côte, deux pixels d'écart passent inaperçus ; alternées, elles
+font « sauter » le personnage exactement comme en jeu. Un bouton permet de
+**refuser la planche** et de la régénérer.
+
+### Export
+
+- les quatre PNG séparés : `{nom}_idle_down.png`, `{nom}_idle_up.png`,
+  `{nom}_idle_left.png`, `{nom}_idle_right.png` ;
+- la planche 2 × 2 assemblée : `{nom}_idle_sheet.png`, 96 × 96 px ;
+- l'ajout des quatre vues à la bibliothèque, en un geste.
+
+### Ce que le mode ne change pas
+
+Le mode **Asset unique** est strictement inchangé : mêmes réglages, même chaîne
+de post-traitement, mêmes résultats. Les deux modes ne partagent que le Style
+Pack actif et ses références.
+
+L'isolement est identique à celui du mode Asset unique, avec une précision :
+**le sprite maître voyage dans un champ dédié**, jamais par le canal des
+références de style. C'est ce qui permet de désigner un asset de la bibliothèque
+comme maître sans qu'il devienne pour autant une référence — le contenu de la
+bibliothèque n'est jamais transmis automatiquement, seul le fichier unique
+explicitement choisi part avec la requête.
+
+### Utilisation en cinq gestes
+
+1. Onglet **Générer**, choisir **Planche de personnage**.
+2. Nommer le personnage et le décrire.
+3. Importer le sprite maître (PNG 48 × 48) ou en choisir un dans la
+   bibliothèque, puis indiquer l'orientation qu'il représente.
+4. **Générer la planche**, puis lire le tableau de contrôle et comparer les vues
+   par alternance.
+5. Exporter les quatre PNG, la planche, ou ajouter le tout à la bibliothèque —
+   ou refuser et régénérer.
 
 ## Nouveautés de la V0.2.3
 
@@ -520,23 +621,34 @@ Deux points à connaître sur les plateformes serverless :
 ```
 src/
 ├── app/
-│   ├── api/generate/route.ts       Unique point de contact avec OpenAI
+│   ├── api/generate/route.ts       Asset unique — contact avec OpenAI
+│   ├── api/generate-sheet/route.ts Planche de personnage — contact avec OpenAI
 │   ├── api/status/route.ts         Présence de la clé (jamais sa valeur)
 │   └── layout.tsx  page.tsx  globals.css
 ├── components/
 │   ├── tabs/                       Style · Générer · Bibliothèque · Réglages
+│   ├── character/                  Maître, alternance, tableau de contrôle
 │   ├── style/                      Pack, contexte, références, catégories
 │   └── ui/                         Primitives d'interface
 ├── hooks/
 │   ├── useAppState.tsx             ENTRÉES : packs, contexte, références
 │   ├── useLibrary.ts               SORTIES : assets générés
-│   └── useGeneration.ts            Cycle d'une génération
+│   ├── useGeneration.ts            Cycle d'une génération (asset unique)
+│   └── useCharacterSheet.ts        Cycle d'une planche + brouillon persistant
 ├── lib/
 │   ├── config.ts                   Modèle, limites, contraintes de résolution
 │   ├── errors.ts                   Codes d'erreur + messages utilisateur
 │   ├── pricing.ts                  Estimation de coût (isolée, sans tarif figé)
+│   ├── character/
+│   │   ├── sheetLayout.ts          Grille 2 × 2 : découpage et assemblage
+│   │   ├── cellAlignment.ts        Géométrie, alignement, miroir, alpha binaire
+│   │   ├── sheetValidation.ts      Mesures et statut par vue
+│   │   ├── characterSheet.ts       Assemblage des quatre vues
+│   │   ├── sheetPipeline.ts        Chaîne serveur : rendu → vues normalisées
+│   │   └── sheetExport.ts          Nommage des fichiers et planche exportée
 │   ├── generation/
 │   │   ├── payload.ts              Point de passage obligé vers l'API
+│   │   ├── sheetPayload.ts         Instantané d'une planche (maître à part)
 │   │   ├── generationSizing.ts     Résolution GPT + score de grille
 │   │   └── qualityMode.ts          Modes qualité et politique de coût
 │   ├── image/
@@ -555,7 +667,7 @@ src/
 ├── types/
 │   ├── domain.ts                   StyleReference ≠ GeneratedAsset
 │   └── api.ts                      Contrat navigateur ↔ serveur
-tests/                              236 tests
+tests/                              311 tests
 ```
 
 ## Sécurité
@@ -568,10 +680,11 @@ tests/                              236 tests
 - Messages d'erreur lisibles côté client ; détails techniques uniquement dans la
   console serveur — jamais la clé, jamais le prompt, jamais le base64 complet.
 
-## Volontairement absent de la V0.2.3
+## Volontairement absent de la V0.2.4
 
 Comptes utilisateurs, authentification, synchronisation cloud, base distante,
 sélection automatique des références par IA, RAG, mémoire, apprentissage,
 fine-tuning, validation visuelle par IA, palette globale par Style Pack,
-spritesheets, animations, génération par lots, export/import, éditeur
-d'ancrage, contour automatique, correction par un second appel GPT.
+animations, génération par lots, export/import, éditeur d'ancrage, contour
+automatique, correction par un second appel GPT, planches de marche ou d'attaque,
+tailles de cellule autres que 48 × 48.

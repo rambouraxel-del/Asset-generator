@@ -73,7 +73,7 @@ export interface QuantizationReport {
   skipped: boolean;
 }
 
-interface Rgb {
+export interface Rgb {
   r: number;
   g: number;
   b: number;
@@ -236,6 +236,73 @@ function countColours(pixels: Rgb[]): number {
   const seen = new Set<number>();
   for (const pixel of pixels) seen.add((pixel.r << 16) | (pixel.g << 8) | pixel.b);
   return seen.size;
+}
+
+/**
+ * Palette des pixels visibles d'une image, sans doublon.
+ *
+ * Sert à aligner les vues d'un personnage sur les teintes de son sprite
+ * maître : le modèle dérive souvent d'une vue à l'autre, et remettre chaque
+ * pixel sur la couleur maître la plus proche supprime cette dérive.
+ */
+export function extractPalette(image: RgbaImage): Rgb[] {
+  const seen = new Map<number, Rgb>();
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    if (image.data[offset + 3] === 0) continue;
+    const r = image.data[offset];
+    const g = image.data[offset + 1];
+    const b = image.data[offset + 2];
+    seen.set((r << 16) | (g << 8) | b, { r, g, b });
+  }
+  return [...seen.values()];
+}
+
+/**
+ * Ramène chaque pixel visible sur la couleur la plus proche d'une palette
+ * imposée. La couche alpha n'est jamais modifiée.
+ *
+ * Renvoie l'image inchangée si la palette est vide : sans référence, il n'y a
+ * rien à rapprocher.
+ */
+export function mapImageToPalette(
+  image: RgbaImage,
+  palette: Rgb[],
+): { image: RgbaImage; changedPixels: number } {
+  if (palette.length === 0) return { image, changedPixels: 0 };
+
+  const data = new Uint8Array(image.data);
+  let changedPixels = 0;
+
+  // Mémoïsation : une image de sprite réutilise massivement ses teintes.
+  const cache = new Map<number, Rgb>();
+
+  for (let offset = 0; offset < data.length; offset += 4) {
+    if (data[offset + 3] === 0) continue;
+
+    const key = (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
+    let nearest = cache.get(key);
+    if (nearest === undefined) {
+      nearest = nearestColour(
+        { r: data[offset], g: data[offset + 1], b: data[offset + 2] },
+        palette,
+      );
+      cache.set(key, nearest);
+    }
+
+    if (
+      data[offset] !== nearest.r ||
+      data[offset + 1] !== nearest.g ||
+      data[offset + 2] !== nearest.b
+    ) {
+      changedPixels += 1;
+    }
+
+    data[offset] = nearest.r;
+    data[offset + 1] = nearest.g;
+    data[offset + 2] = nearest.b;
+  }
+
+  return { image: { width: image.width, height: image.height, data }, changedPixels };
 }
 
 /** Couleurs distinctes parmi les pixels visibles d'une image. */

@@ -298,6 +298,67 @@ export const ADAPTIVE_PALETTE = [
   { edge: 128, colours: 48 },
 ] as const;
 
+/**
+ * Mode « Planche de personnage ».
+ *
+ * ---------------------------------------------------------------------------
+ * POURQUOI UNE PLANCHE PLUTÔT QUE QUATRE GÉNÉRATIONS
+ * ---------------------------------------------------------------------------
+ * Générées séparément, les orientations d'un même personnage divergent : sur
+ * des cellules de 48 × 48, on observe en pratique face 20 × 44 pieds à Y=45,
+ * dos 16 × 42 pieds à Y=44, profil 16 × 40 pieds à Y=43. À l'usage, le
+ * personnage « saute » quand on change de direction.
+ *
+ * Les vues sont donc demandées EN UNE SEULE IMAGE : le modèle voit ses propres
+ * vues côte à côte et les tient cohérentes. La normalisation locale reprend
+ * ensuite chaque cellule pour aligner exactement hauteur, centre et ligne de
+ * pieds — sans jamais toucher au sprite maître.
+ *
+ * Disposition 2 × 2, qui est aussi le format de la planche exportée :
+ *
+ *     +------+------+
+ *     | down |  up  |
+ *     +------+------+
+ *     | left | right|
+ *     +------+------+
+ *
+ * En 48 px de cellule, la planche fait 96 × 96 : le modèle la rend en
+ * 864 × 864, soit une grille logique de ×9 exactement.
+ * ---------------------------------------------------------------------------
+ */
+export const CHARACTER_SHEET = {
+  /** Côté d'une cellule, en pixels. */
+  CELL_SIZE: 48,
+
+  /**
+   * Géométrie cible d'une cellule, exprimée pour `CELL_SIZE = 48`.
+   *
+   * `CENTRE_X` vaut (48 − 1) / 2 : une boîte de largeur paire s'y centre
+   * exactement. `FEET_Y` laisse deux lignes vides sous les pieds, marge utile
+   * pour une ombre ou un décalage d'animation ultérieurs.
+   */
+  TARGET: {
+    CENTRE_X: 23.5,
+    FEET_Y: 45,
+  },
+
+  /**
+   * Écart de hauteur toléré avant redimensionnement. En deçà, on préfère
+   * laisser la cellule intacte : un rééchantillonnage d'un seul pixel abîme
+   * plus la silhouette qu'il ne l'aligne.
+   */
+  HEIGHT_TOLERANCE: 1,
+
+  /** Écart de hauteur au-delà duquel la cellule passe en alerte puis en erreur. */
+  STATUS_THRESHOLDS: { WARNING: 2 },
+
+  /** Seuil d'alpha du passage en transparence binaire. */
+  ALPHA_THRESHOLD: 128,
+
+  /** Rapproche par défaut la palette des vues de celle du maître. */
+  MATCH_MASTER_PALETTE: true,
+} as const;
+
 /** Facteur du second aperçu, destiné à juger la netteté pixel par pixel. */
 export const PREVIEW_ZOOM_FACTOR = 8;
 
