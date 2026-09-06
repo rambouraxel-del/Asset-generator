@@ -123,7 +123,7 @@ describe("Isolation des comptes", () => {
 
   it("les dépenses de deux comptes ne se mélangent pas", async () => {
     const ledger = new MemoryLedger();
-    await ledger.reserve("compte-a", 0.5, "r1");
+    await ledger.reserve("compte-a", 0.5, "r1", null);
     await ledger.settle("compte-a", "r1", { costUsd: 0.5, counted: true });
 
     expect((await ledger.read("compte-a")).recordedUsd).toBe(0.5);
@@ -729,13 +729,13 @@ describe("Registre de dépense", () => {
   });
 
   it("compte une réservation comme dépense en vol", async () => {
-    await ledger.reserve("o", 0.3, "r1");
+    await ledger.reserve("o", 0.3, "r1", null);
     expect((await ledger.read("o")).inFlightUsd).toBeCloseTo(0.3);
     expect((await ledger.read("o")).recordedUsd).toBe(0);
   });
 
   it("libère la réservation et enregistre le coût mesuré", async () => {
-    await ledger.reserve("o", 0.3, "r1");
+    await ledger.reserve("o", 0.3, "r1", null);
     await ledger.settle("o", "r1", { costUsd: 0.12, counted: true });
 
     const snapshot = await ledger.read("o");
@@ -746,7 +746,7 @@ describe("Registre de dépense", () => {
   });
 
   it("un coût inconnu n'est PAS compté comme zéro", async () => {
-    await ledger.reserve("o", 0.3, "r1");
+    await ledger.reserve("o", 0.3, "r1", null);
     await ledger.settle("o", "r1", { costUsd: null, counted: true });
 
     const snapshot = await ledger.read("o");
@@ -760,9 +760,9 @@ describe("Registre de dépense", () => {
   });
 
   it("sépare toujours le mesuré de l'estimé", async () => {
-    await ledger.reserve("o", 0.2, "r1");
+    await ledger.reserve("o", 0.2, "r1", null);
     await ledger.settle("o", "r1", { costUsd: 0.05, counted: true });
-    await ledger.reserve("o", 0.2, "r2");
+    await ledger.reserve("o", 0.2, "r2", null);
     await ledger.settle("o", "r2", { costUsd: null, counted: true });
 
     const snapshot = await ledger.read("o");
@@ -775,7 +775,7 @@ describe("Registre de dépense", () => {
     // Scénario réel : l'API ne remonte aucun usage. Sans cumul des
     // estimations, le compteur resterait à zéro et le plafond serait inutile.
     for (let index = 0; index < 3; index += 1) {
-      await ledger.reserve("o", 0.1, `r${index}`);
+      await ledger.reserve("o", 0.1, `r${index}`, null);
       await ledger.settle("o", `r${index}`, { costUsd: null, counted: true });
     }
     const snapshot = await ledger.read("o");
@@ -789,7 +789,7 @@ describe("Registre de dépense", () => {
   });
 
   it("libère sans rien facturer quand l'appel échoue avant coût", async () => {
-    await ledger.reserve("o", 0.3, "r1");
+    await ledger.reserve("o", 0.3, "r1", null);
     await ledger.release("o", "r1");
 
     const snapshot = await ledger.read("o");
@@ -913,7 +913,7 @@ describe("Non-régression", () => {
     const ledger = new MemoryLedger();
     const spy = vi.spyOn(ledger, "reserve");
 
-    await ledger.reserve("o", 0.1, "r1");
+    await ledger.reserve("o", 0.1, "r1", null);
     await ledger.settle("o", "r1", { costUsd: null, counted: true });
 
     // Une seule réservation : rien n'a été retenté tout seul.

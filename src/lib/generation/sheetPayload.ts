@@ -28,6 +28,10 @@ import type { Direction } from "@/lib/character/sheetLayout";
 import type { AssetCategory, StylePack, StyleReference } from "@/types/domain";
 
 export interface CharacterSheetRequest {
+  ownerId: string;
+  projectId: string;
+  /** Voir `GenerationRequest.attempt`. */
+  attempt: number;
   context: string;
   categoryName: string | null;
   categoryRule: string;
@@ -46,6 +50,9 @@ export interface CharacterSheetRequest {
 }
 
 export interface BuildSheetRequestInput {
+  ownerId?: string;
+  projectId?: string;
+  attempt?: number;
   pack: StylePack;
   category: AssetCategory | null;
   request: string;
@@ -71,6 +78,9 @@ export function buildSheetRequest(input: BuildSheetRequestInput): CharacterSheet
   });
 
   return {
+    ownerId: input.ownerId ?? "local-owner",
+    projectId: input.projectId ?? "sans-projet",
+    attempt: input.attempt ?? 0,
     context: input.pack.context,
     categoryName: input.category?.name ?? null,
     categoryRule: input.category?.rule ?? "",

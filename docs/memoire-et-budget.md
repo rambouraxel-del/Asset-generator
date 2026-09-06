@@ -5,18 +5,41 @@ la procédure de sauvegarde, et les limites qu'il faut connaître.
 
 ---
 
+## 0. ⚠️ Changement important : la génération réelle est désormais fermée par défaut
+
+Depuis cette étape, **une génération réelle est refusée tant que la
+configuration de sécurité n'est pas complète**. C'est délibéré : sans elle,
+n'importe qui atteignant votre URL pouvait dépenser votre crédit.
+
+Trois éléments sont exigés en mode réel :
+
+| Élément | Variable | Pourquoi |
+| --- | --- | --- |
+| Authentification | `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` | savoir qui appelle |
+| Autorisation | `GENERATION_ALLOWLIST` | s'inscrire ne suffit pas à dépenser |
+| Budget persistant | `SUPABASE_SERVICE_ROLE_KEY` | un plafond qui tient réellement |
+
+Si l'un manque, l'application vous dit **lequel**, précisément, et bloque.
+Le **mode maquette** (`MOCK_OPENAI=1`) reste entièrement ouvert : il n'appelle
+aucun fournisseur et ne coûte rien.
+
+> Pourquoi bloquer plutôt que retomber sur un compteur local ? Parce qu'un
+> compteur en mémoire disparaît à chaque redémarrage et n'est pas partagé entre
+> les serveurs : afficher un plafond dans ces conditions serait un mensonge.
+
 ## 1. Ce qui marche déjà, sans rien configurer
 
-Rien n'est cassé si vous ne faites rien. L'application continue de fonctionner
-exactement comme avant, avec en plus :
+L'application continue de fonctionner, avec en plus :
 
 - le **mode projet** (charte, palettes, règles par famille) ;
 - l'**assemblage déterministe** du prompt et la sélection explicite des références ;
 - la **protection anti double-soumission** entre onglets ;
-- un **plafond de dépense** indicatif, si vous le configurez.
+- l'import de l'ancienne bibliothèque, l'export et l'import portables ;
+- le mode maquette, entièrement utilisable pour tout essayer sans dépenser.
 
-Ce qui ne marche **pas** encore sans configuration : la mémoire partagée entre
-appareils. Tant que Supabase n'est pas branché, tout vit dans votre navigateur.
+Ce qui ne marche **pas** sans configuration : la mémoire partagée entre
+appareils, **et la génération réelle** (voir §0). Tant que Supabase n'est pas
+branché, tout vit dans votre navigateur.
 
 ---
 
@@ -56,7 +79,10 @@ fait dans deux interfaces web.
 2. Ouvrez le fichier `supabase/migrations/0001_init.sql` de ce dépôt, copiez
    **tout** son contenu, collez-le dans l'éditeur.
 3. Cliquez **Run**.
-4. Vérifiez : menu **Table Editor**, vous devez voir les tables `projects`,
+4. Recommencez avec `supabase/migrations/0002_spend_functions.sql` — il ajoute
+   les opérations atomiques de budget, sans lesquelles le plafond ne tiendrait
+   pas entre plusieurs serveurs.
+5. Vérifiez : menu **Table Editor**, vous devez voir les tables `projects`,
    `assets`, `asset_variants`, `generations`, `allowed_generators`,
    `spend_ledger`.
 
@@ -139,24 +165,63 @@ utiles, ils ne se remplacent pas.
 
 ---
 
-## 6. Le plafond de dépense — ce qu'il garantit vraiment
+## 6. Le plafond de dépense — garanties et limites, honnêtement
 
-| Situation | Le plafond est-il fiable ? |
+### Ce qui est démontré
+
+- **La concurrence est traitée.** La décision et la réservation se font en une
+  seule opération indivisible : en mémoire, sans `await` intermédiaire ; en base,
+  dans une transaction avec verrou de ligne. Un test vérifie que trois demandes
+  simultanées sous un plafond de 0,25 $ à 0,10 $ pièce n'en laissent passer que
+  **deux**. Une version antérieure du code en laissait passer trois — c'est ce
+  test qui l'a révélé.
+- **La double soumission est bloquée**, et un renvoi identique après succès
+  **rejoue le résultat déjà payé** au lieu d'en facturer un second.
+- **Un coût inconnu consomme son estimation**, jamais zéro : sinon un
+  fournisseur ne remontant aucun usage rendrait le plafond inopérant.
+
+### Ce qui n'est PAS garanti
+
+> **L'affirmation « dépassement maximal d'une génération » n'est pas tenable
+> telle quelle, et je ne la maintiens pas.**
+
+Le dépassement réel est borné par l'**écart entre l'estimation réservée et le
+coût réel**, pas par « une génération » :
+
+- si `GENERATION_ESTIMATED_COST_USD` **sous-estime** le coût réel, chaque appel
+  creuse l'écart, et **plusieurs** appels peuvent passer avant que le compteur
+  ne rattrape la dépense ;
+- l'écart maximal est d'environ *N × (coût réel − estimation)*, où *N* est le
+  nombre d'appels autorisés avant que le plafond ne morde ;
+- si l'estimation **sur-estime**, le plafond bloque trop tôt : plus sûr, mais
+  frustrant.
+
+**Conséquence pratique :** réglez `GENERATION_ESTIMATED_COST_USD` au-dessus de
+votre coût réel par génération. Un test peut prouver l'absence de course ; aucun
+test ne peut borner un dépassement dont la cause est une estimation fausse.
+
+| Situation | Fiabilité |
 |---|---|
-| Sans Supabase | ❌ **Non — garde-fou indicatif.** Le compteur vit en mémoire, propre à chaque instance serveur et remis à zéro au redémarrage. |
-| Avec Supabase | ✅ Oui, à une génération près. |
+| Sans Supabase | ❌ Génération réelle **bloquée** (voir §0) |
+| Avec Supabase | ✅ Plafond appliqué entre instances, à l'écart d'estimation près |
 
-Deux imprécisions restent, même dans le meilleur cas :
+**Le seul plafond réellement dur reste celui d'OpenAI.** Configurez-le sur votre
+compte (Settings → Limits → Monthly budget). C'est votre vraie sécurité.
 
-1. **Le coût réel n'est connu qu'après l'appel.** On réserve donc une
-   estimation (`GENERATION_ESTIMATED_COST_USD`) avant de partir. Un dépassement
-   d'au plus une génération reste possible.
-2. **Un coût inconnu est compté à son estimation, pas à zéro.** Si l'API ne
-   remonte aucun usage, le compteur monte quand même — sinon le plafond ne
-   bloquerait jamais. L'interface distingue toujours *mesuré* et *estimé*.
+## 6 bis. Répétition accidentelle et nouvelle variante
 
-**Le seul plafond réellement dur est celui d'OpenAI.** Configurez-le sur votre
-compte OpenAI (Settings → Limits → Monthly budget). C'est votre vraie sécurité.
+Deux boutons, deux intentions :
+
+| Bouton | Effet | Facturé ? |
+| --- | --- | --- |
+| **Réessayer** | Rejoue la demande. Si elle a déjà abouti, rend le résultat conservé. | Non |
+| **Générer une nouvelle variante** | Nouvel appel, même prompt, autre tirage. | **Oui** |
+
+L'identité d'une demande combine *empreinte du contenu + compte + projet +
+numéro d'essai*. Une empreinte seule ne suffirait pas : elle confondrait un
+double-clic avec une envie de variante. Le compte et le projet en font partie,
+ce qui rend structurellement impossible qu'un résultat payé par un compte soit
+rejoué vers un autre.
 
 ---
 

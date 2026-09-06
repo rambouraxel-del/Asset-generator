@@ -339,10 +339,18 @@ export function CharacterSheetPanel({
                 onClick={sheet.regenerate}
                 disabled={sheet.pending}
               >
-                Régénérer
+                Réessayer
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={sheet.generateVariant}
+                disabled={sheet.pending}
+              >
+                Nouvelle variante
               </Button>
               <Button variant="danger" className="flex-1" onClick={sheet.reject}>
-                Refuser cette planche
+                Refuser
               </Button>
             </div>
             <p className="mt-2 text-center text-xs text-muted">

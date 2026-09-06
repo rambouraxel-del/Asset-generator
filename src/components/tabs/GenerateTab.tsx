@@ -352,6 +352,7 @@ export function GenerateTab({
         result={generation.result}
         pending={generation.pending}
         onRegenerate={generation.regenerate}
+        onNewVariant={generation.generateVariant}
         library={library}
         packId={pack.id}
         packName={pack.name}

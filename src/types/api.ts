@@ -198,6 +198,33 @@ export interface ApiErrorResponse {
   error: { code: ErrorCode; message: string };
 }
 
+/**
+ * Réponse de GET /api/readiness : ce que le serveur peut réellement faire.
+ * Ne contient aucun secret — uniquement des booléens et des compteurs.
+ */
+export interface ReadinessResponse {
+  mockMode: boolean;
+  model: string;
+  authConfigured: boolean;
+  allowlistConfigured: boolean;
+  persistentBudget: boolean;
+  /** `true` si une génération réelle est possible en l'état. */
+  canGenerate: boolean;
+  blockers: string[];
+  spendLimitUsd: number | null;
+  /** `true` si le plafond est réellement contraignant. */
+  strictLimit: boolean;
+  /** Compteurs du compte connecté, `null` si non connecté ou indisponible. */
+  spend: {
+    recordedUsd: number;
+    measuredUsd: number;
+    estimatedUsd: number;
+    inFlightUsd: number;
+    unknownCostCount: number;
+    generations: number;
+  } | null;
+}
+
 /** Réponse de GET /api/status : état de configuration du serveur. */
 export interface StatusResponse {
   /** `true` si OPENAI_API_KEY est définie côté serveur. La valeur n'est jamais exposée. */

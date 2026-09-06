@@ -1,6 +1,7 @@
 "use client";
 
 export const TABS = [
+  { id: "project", label: "Projet" },
   { id: "style", label: "Style" },
   { id: "generate", label: "Générer" },
   { id: "library", label: "Biblio." },

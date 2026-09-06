@@ -101,6 +101,7 @@ export async function POST(request: Request): Promise<NextResponse> {
      */
     const guardOutcome = await guardGeneration(request, {
       idempotencyKey: request.headers.get("x-idempotency-key"),
+      projectId: request.headers.get("x-project-id"),
     });
 
     // Demande déjà payée : on rend son résultat plutôt que d'en facturer un second.

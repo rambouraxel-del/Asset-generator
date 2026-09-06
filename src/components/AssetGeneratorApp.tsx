@@ -6,10 +6,12 @@ import { useAppState } from "@/hooks/useAppState";
 import { useCharacterSheet } from "@/hooks/useCharacterSheet";
 import { useGeneration } from "@/hooks/useGeneration";
 import { useLibrary } from "@/hooks/useLibrary";
-import type { StatusResponse } from "@/types/api";
+import { useProjectWorkspace } from "@/hooks/useProjectWorkspace";
+import type { ReadinessResponse, StatusResponse } from "@/types/api";
 import { Alert } from "@/components/ui/Alert";
 import { TabBar, type TabId } from "@/components/TabBar";
 import { GenerateTab } from "@/components/tabs/GenerateTab";
+import { ProjectTab } from "@/components/tabs/ProjectTab";
 import { LibraryTab } from "@/components/tabs/LibraryTab";
 import { SettingsTab } from "@/components/tabs/SettingsTab";
 import { StyleTab } from "@/components/tabs/StyleTab";
@@ -34,9 +36,11 @@ export function AssetGeneratorApp() {
   // travail en cours dans l'autre.
   const sheet = useCharacterSheet({ onUsage: state.recordUsage });
   const library = useLibrary();
+  const workspace = useProjectWorkspace();
 
   const [tab, setTab] = useState<TabId>("generate");
   const [serverStatus, setServerStatus] = useState<StatusResponse | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
 
   // Prévenir l'utilisateur si la clé API manque, avant toute tentative.
   useEffect(() => {
@@ -48,6 +52,22 @@ export function AssetGeneratorApp() {
       })
       .catch(() => {
         // Le statut est purement indicatif : son échec ne bloque rien.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Ce que le serveur peut réellement faire : configuration, plafond, dépenses.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/readiness")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: ReadinessResponse | null) => {
+        if (!cancelled && body) setReadiness(body);
+      })
+      .catch(() => {
+        // Purement informatif : son échec ne bloque rien.
       });
     return () => {
       cancelled = true;
@@ -97,6 +117,16 @@ export function AssetGeneratorApp() {
 
         {state.error ? <Alert tone="error">{state.error}</Alert> : null}
 
+        {readiness !== null && !readiness.canGenerate && !readiness.mockMode ? (
+          <Alert tone="error">
+            Génération bloquée par sécurité tant que la configuration est incomplète :{" "}
+            {readiness.blockers.join(" ")}
+          </Alert>
+        ) : null}
+
+        {tab === "project" ? (
+          <ProjectTab workspace={workspace} readiness={readiness} />
+        ) : null}
         {tab === "style" ? <StyleTab /> : null}
         {tab === "generate" ? (
           <GenerateTab

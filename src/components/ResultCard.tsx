@@ -34,6 +34,7 @@ export function ResultCard({
   result,
   pending,
   onRegenerate,
+  onNewVariant,
   library,
   packId,
   packName,
@@ -42,6 +43,8 @@ export function ResultCard({
   result: GenerateSuccessResponse | null;
   pending: boolean;
   onRegenerate: () => void;
+  /** Demande explicite d'un autre rendu : nouvelle génération, facturée. */
+  onNewVariant: () => void;
   library: ReturnType<typeof useLibrary>;
   packId: string;
   packName: string;
@@ -193,8 +196,23 @@ export function ResultCard({
           onClick={onRegenerate}
           disabled={pending}
         >
-          {pending ? "Génération en cours…" : "Régénérer"}
+          {pending ? "Génération en cours…" : "Réessayer"}
         </Button>
+      </div>
+
+      <div className="mt-2">
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={onNewVariant}
+          disabled={pending}
+        >
+          Générer une nouvelle variante
+        </Button>
+        <p className="mt-1 text-center text-xs text-muted">
+          « Réessayer » rend le résultat déjà payé. « Nouvelle variante » lance un nouvel
+          appel — et le facture.
+        </p>
       </div>
 
       <div className="mt-3 rounded-xl border border-border p-3">

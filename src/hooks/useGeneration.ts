@@ -63,10 +63,27 @@ export function useGeneration({
     // `onUsage` provient de l'état applicatif et y est déjà mémoïsé.
   }, [onUsage]);
 
-  /** Relance strictement la même requête : même pack, mêmes références, même demande. */
+  /**
+   * Rejoue la demande à l'identique.
+   *
+   * Le numéro d'essai NE BOUGE PAS : si la génération a déjà abouti, le serveur
+   * rend le résultat déjà payé au lieu d'en facturer un second. C'est le
+   * comportement voulu pour un simple « réessayer ».
+   */
   const regenerate = useCallback(async () => {
     const payload = lastRequestRef.current;
     if (payload) await run(payload);
+  }, [run]);
+
+  /**
+   * Demande explicite d'un AUTRE rendu du même prompt.
+   *
+   * Le numéro d'essai avance, donc la clé change et l'appel part réellement.
+   * C'est facturé, et c'est assumé : l'utilisateur l'a demandé.
+   */
+  const generateVariant = useCallback(async () => {
+    const payload = lastRequestRef.current;
+    if (payload) await run({ ...payload, attempt: payload.attempt + 1 });
   }, [run]);
 
   const cancel = useCallback(() => {
@@ -88,6 +105,7 @@ export function useGeneration({
     error,
     run,
     regenerate,
+    generateVariant,
     cancel,
     clearResult,
     clearError: useCallback(() => setError(null), []),

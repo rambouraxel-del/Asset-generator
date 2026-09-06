@@ -89,9 +89,16 @@ export function useCharacterSheet({ onUsage }: { onUsage: (usage: TokenUsage | n
     [onUsage],
   );
 
+  /** Rejoue à l'identique : le résultat déjà payé est rendu, pas refacturé. */
   const regenerate = useCallback(async () => {
     const payload = lastRequestRef.current;
     if (payload) await run(payload);
+  }, [run]);
+
+  /** Demande explicite d'une autre planche : facturée, et assumée. */
+  const generateVariant = useCallback(async () => {
+    const payload = lastRequestRef.current;
+    if (payload) await run({ ...payload, attempt: payload.attempt + 1 });
   }, [run]);
 
   const cancel = useCallback(() => {
@@ -145,6 +152,7 @@ export function useCharacterSheet({ onUsage }: { onUsage: (usage: TokenUsage | n
     updateDraft,
     run,
     regenerate,
+    generateVariant,
     reject,
     cancel,
     clearResult,

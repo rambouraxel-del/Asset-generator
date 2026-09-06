@@ -14,7 +14,7 @@
  */
 
 import { AppError, isErrorCode, userMessageFor } from "@/lib/errors";
-import { buildIdempotencyKey } from "@/lib/client/idempotencyKey";
+import { buildRequestKey } from "@/lib/generation/requestIntent";
 import type { GenerationRequest } from "@/lib/generation/payload";
 import type { ApiErrorResponse, GenerateSuccessResponse } from "@/types/api";
 
@@ -60,16 +60,31 @@ export async function requestGeneration(
       // Deux onglets envoyant la meme demande produisent la meme cle : le
       // serveur refuse alors le second envoi plutot que de le facturer.
       headers: {
-        "x-idempotency-key": buildIdempotencyKey([
-          payload.request,
-          payload.context,
-          payload.categoryName,
-          payload.settings.finalWidth,
-          payload.settings.finalHeight,
-          payload.settings.qualityMode,
-          payload.settings.pixelPipeline,
-          payload.references.length,
-        ]),
+        /*
+         * La cle porte le compte, le projet et le numero d'essai, pas
+         * seulement une empreinte du contenu : une relance volontaire
+         * (« nouvelle variante ») doit partir, un double envoi accidentel non.
+         */
+        "x-idempotency-key": buildRequestKey({
+          ownerId: payload.ownerId,
+          projectId: payload.projectId,
+          attempt: payload.attempt,
+          content: {
+            mode: "single",
+            prompt: payload.request,
+            parameters: [
+              payload.context,
+              payload.categoryName,
+              payload.settings.finalWidth,
+              payload.settings.finalHeight,
+              payload.settings.qualityMode,
+              payload.settings.pixelPipeline,
+              payload.settings.background,
+            ],
+            referenceIds: payload.references.map((reference) => reference.name),
+          },
+        }),
+        "x-project-id": payload.projectId,
       },
     });
   } catch (error) {

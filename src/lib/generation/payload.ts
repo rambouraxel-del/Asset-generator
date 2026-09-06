@@ -76,6 +76,15 @@ export interface OutgoingReference {
  * quel, et le rejouer ne peut donc rien transporter de plus.
  */
 export interface GenerationRequest {
+  /** Compte à l'origine de la demande. Le serveur le REVÉRIFIE toujours. */
+  ownerId: string;
+  /** Projet auquel la génération est rattachée. */
+  projectId: string;
+  /**
+   * Numéro d'essai. Avance UNIQUEMENT sur « Générer une nouvelle variante » :
+   * c'est ce qui distingue une relance volontaire d'un double envoi accidentel.
+   */
+  attempt: number;
   context: string;
   categoryName: string | null;
   targetWidth: number | null;
@@ -123,6 +132,9 @@ export function buildGenerationRequest(input: {
   request: string;
   settings: GenerationSettings;
   references: StyleReference[];
+  ownerId?: string;
+  projectId?: string;
+  attempt?: number;
 }): GenerationRequest {
   const outgoing: OutgoingReference[] = input.references.map((reference) => {
     assertStyleReference(reference);
@@ -130,6 +142,9 @@ export function buildGenerationRequest(input: {
   });
 
   return {
+    ownerId: input.ownerId ?? "local-owner",
+    projectId: input.projectId ?? "sans-projet",
+    attempt: input.attempt ?? 0,
     context: input.pack.context,
     categoryName: input.category?.name ?? null,
     targetWidth: input.category?.targetWidth ?? null,

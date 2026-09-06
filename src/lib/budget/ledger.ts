@@ -37,12 +37,29 @@ export interface LedgerSnapshot {
   generations: number;
 }
 
+/** Verdict d'une réservation. */
+export type ReserveOutcome =
+  | { allowed: true; remainingUsd: number | null }
+  | { allowed: false; remainingUsd: number };
+
 export interface SpendLedger {
   /** `true` seulement si le registre est partagé et durable. */
   readonly isStrict: boolean;
   read(ownerId: string): Promise<LedgerSnapshot>;
-  /** Réserve un montant pour un appel en cours. Renvoie l'identifiant à libérer. */
-  reserve(ownerId: string, amountUsd: number, requestId: string): Promise<void>;
+  /**
+   * Décide ET réserve en une seule opération indivisible.
+   *
+   * C'est le point crucial : séparer « lire le compteur » de « poser la
+   * réservation » laisse une fenêtre pendant laquelle plusieurs appels
+   * simultanés lisent tous « il reste de la place » et passent ensemble. La
+   * décision doit donc appartenir au registre, jamais à l'appelant.
+   */
+  reserve(
+    ownerId: string,
+    amountUsd: number,
+    requestId: string,
+    limitUsd: number | null,
+  ): Promise<ReserveOutcome>;
   /** Libère la réservation et enregistre le coût réel (ou son absence). */
   settle(
     ownerId: string,
@@ -98,8 +115,44 @@ export class MemoryLedger implements SpendLedger {
     };
   }
 
-  async reserve(ownerId: string, amountUsd: number, requestId: string): Promise<void> {
-    this.stateOf(ownerId).reservations.set(requestId, Math.max(0, amountUsd));
+  /**
+   * Décision et réservation sans `await` intermédiaire.
+   *
+   * JavaScript n'interrompt pas une fonction entre deux instructions
+   * synchrones : lire les compteurs puis poser la réservation d'un seul tenant
+   * est donc réellement indivisible ici, et trois appels concurrents ne peuvent
+   * plus franchir ensemble le plafond.
+   */
+  async reserve(
+    ownerId: string,
+    amountUsd: number,
+    requestId: string,
+    limitUsd: number | null,
+  ): Promise<ReserveOutcome> {
+    const state = this.stateOf(ownerId);
+    const amount = Math.max(0, amountUsd);
+
+    // Une réservation déjà posée sous cette clé n'est pas doublée.
+    if (state.reservations.has(requestId)) {
+      return { allowed: true, remainingUsd: limitUsd };
+    }
+
+    if (limitUsd !== null) {
+      let inFlight = 0;
+      for (const value of state.reservations.values()) inFlight += value;
+      const engaged = state.measuredUsd + state.estimatedUsd + inFlight;
+      const remaining = limitUsd - engaged;
+
+      if (remaining <= 0 || amount > remaining) {
+        return { allowed: false, remainingUsd: Math.max(0, remaining) };
+      }
+    }
+
+    state.reservations.set(requestId, amount);
+    return {
+      allowed: true,
+      remainingUsd: limitUsd === null ? null : limitUsd - amount,
+    };
   }
 
   async settle(

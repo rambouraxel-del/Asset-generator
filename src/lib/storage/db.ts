@@ -20,13 +20,21 @@
  *   v2 (V0.2) — `styleReferences` (+ index `packId`) et `generatedAssets`.
  *               Les références v1 sont recopiées et rattachées au pack de
  *               migration, puis l'ancien store est supprimé.
+ *   v3 (V0.3) — `projectReferences` et `assetVariants` sont AJOUTÉS. Aucun
+ *               store existant n'est touché : les données de la V0.2 restent
+ *               en place et lisibles, et l'import de l'ancienne bibliothèque
+ *               les recopie sans les altérer.
  */
 
 const DB_NAME = "asset-generator";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORE_STYLE_REFERENCES = "styleReferences";
 export const STORE_GENERATED_ASSETS = "generatedAssets";
+/** Références validées d'un projet (V0.3). Distinct des références de pack. */
+export const STORE_PROJECT_REFERENCES = "projectReferences";
+/** Variantes d'un asset : original, traité, retouche, maître (V0.3). */
+export const STORE_ASSET_VARIANTS = "assetVariants";
 
 /** Ancien store de la V0.1, conservé le temps de la migration. */
 const LEGACY_STORE_REFERENCES = "references";
@@ -59,6 +67,18 @@ export function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_GENERATED_ASSETS)) {
         const store = db.createObjectStore(STORE_GENERATED_ASSETS, { keyPath: "id" });
         store.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // v3 : ajouts purs, aucune donnée existante n'est modifiée.
+      if (!db.objectStoreNames.contains(STORE_PROJECT_REFERENCES)) {
+        const store = db.createObjectStore(STORE_PROJECT_REFERENCES, { keyPath: "id" });
+        store.createIndex("projectId", "projectId", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_ASSET_VARIANTS)) {
+        const store = db.createObjectStore(STORE_ASSET_VARIANTS, { keyPath: "id" });
+        store.createIndex("assetId", "assetId", { unique: false });
+        store.createIndex("projectId", "projectId", { unique: false });
       }
 
       const upgradingFromV1 =

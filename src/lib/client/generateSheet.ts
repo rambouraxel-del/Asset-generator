@@ -9,7 +9,7 @@
  */
 
 import { AppError, isErrorCode, userMessageFor } from "@/lib/errors";
-import { buildIdempotencyKey } from "@/lib/client/idempotencyKey";
+import { buildRequestKey } from "@/lib/generation/requestIntent";
 import type { CharacterSheetRequest } from "@/lib/generation/sheetPayload";
 import type { ApiErrorResponse, GenerateSheetSuccessResponse } from "@/types/api";
 
@@ -39,16 +39,25 @@ export async function requestCharacterSheet(
       body: formData,
       signal,
       headers: {
-        "x-idempotency-key": buildIdempotencyKey([
-          "sheet",
-          payload.request,
-          payload.context,
-          payload.masterName,
-          payload.masterDirection,
-          payload.generateRightSeparately ? "1" : "0",
-          payload.matchMasterPalette ? "1" : "0",
-          payload.references.length,
-        ]),
+        "x-idempotency-key": buildRequestKey({
+          ownerId: payload.ownerId,
+          projectId: payload.projectId,
+          attempt: payload.attempt,
+          content: {
+            mode: "sheet",
+            prompt: payload.request,
+            parameters: [
+              payload.context,
+              payload.masterName,
+              payload.masterDirection,
+              payload.generateRightSeparately,
+              payload.matchMasterPalette,
+              payload.qualityMode,
+            ],
+            referenceIds: payload.references.map((reference) => reference.name),
+          },
+        }),
+        "x-project-id": payload.projectId,
       },
     });
   } catch (error) {
