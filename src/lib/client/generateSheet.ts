@@ -9,6 +9,7 @@
  */
 
 import { AppError, isErrorCode, userMessageFor } from "@/lib/errors";
+import { buildIdempotencyKey } from "@/lib/client/idempotencyKey";
 import type { CharacterSheetRequest } from "@/lib/generation/sheetPayload";
 import type { ApiErrorResponse, GenerateSheetSuccessResponse } from "@/types/api";
 
@@ -33,7 +34,23 @@ export async function requestCharacterSheet(
 
   let response: Response;
   try {
-    response = await fetch("/api/generate-sheet", { method: "POST", body: formData, signal });
+    response = await fetch("/api/generate-sheet", {
+      method: "POST",
+      body: formData,
+      signal,
+      headers: {
+        "x-idempotency-key": buildIdempotencyKey([
+          "sheet",
+          payload.request,
+          payload.context,
+          payload.masterName,
+          payload.masterDirection,
+          payload.generateRightSeparately ? "1" : "0",
+          payload.matchMasterPalette ? "1" : "0",
+          payload.references.length,
+        ]),
+      },
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new AppError("NETWORK_ERROR", { detail: String(error) });

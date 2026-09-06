@@ -14,6 +14,7 @@
  */
 
 import { AppError, isErrorCode, userMessageFor } from "@/lib/errors";
+import { buildIdempotencyKey } from "@/lib/client/idempotencyKey";
 import type { GenerationRequest } from "@/lib/generation/payload";
 import type { ApiErrorResponse, GenerateSuccessResponse } from "@/types/api";
 
@@ -52,7 +53,25 @@ export async function requestGeneration(
 
   let response: Response;
   try {
-    response = await fetch("/api/generate", { method: "POST", body: formData, signal });
+    response = await fetch("/api/generate", {
+      method: "POST",
+      body: formData,
+      signal,
+      // Deux onglets envoyant la meme demande produisent la meme cle : le
+      // serveur refuse alors le second envoi plutot que de le facturer.
+      headers: {
+        "x-idempotency-key": buildIdempotencyKey([
+          payload.request,
+          payload.context,
+          payload.categoryName,
+          payload.settings.finalWidth,
+          payload.settings.finalHeight,
+          payload.settings.qualityMode,
+          payload.settings.pixelPipeline,
+          payload.references.length,
+        ]),
+      },
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new AppError("NETWORK_ERROR", { detail: String(error) });

@@ -50,7 +50,54 @@ export interface GenerateSuccessResponse {
     postProcessing: PostProcessReport | null;
     /** `null` si l'API n'a remonté aucune donnée de consommation. */
     usage: TokenUsage | null;
+    /** Coût établi côté serveur : mesuré, estimé ou inconnu. */
+    cost: CostReport;
+    /** État du budget après cette génération. */
+    budget: BudgetReport;
   };
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Budget et coût                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Coût d'une génération, tel que le serveur a pu l'établir.
+ *
+ * Trois états volontairement distincts : « mesuré » (usage réel × tarif connu),
+ * « estimé » (calcul a priori) et « inconnu ». Une donnée absente n'est JAMAIS
+ * présentée comme un coût nul.
+ */
+export interface CostReport {
+  status: "measured" | "estimated" | "unknown";
+  amountUsd: number | null;
+  /** Version des tarifs employés, pour pouvoir recalculer plus tard. */
+  pricingVersion: string | null;
+  /** Motif lisible quand le statut est « inconnu ». */
+  reason: string | null;
+  /** `true` si un poste d'usage manquait au calcul. */
+  partial: boolean;
+}
+
+/** Photographie du budget après la génération. */
+export interface BudgetReport {
+  /** Plafond serveur, ou `null` si aucun n'est configuré. */
+  limitUsd: number | null;
+  /** Dépense retenue pour le plafond : mesurée + estimée. */
+  recordedUsd: number;
+  /** Part réellement mesurée. */
+  measuredUsd: number;
+  /** Part estimée faute de coût mesurable — à afficher comme telle. */
+  estimatedUsd: number;
+  /** Générations dont le coût n'a pas pu être calculé. */
+  unknownCostCount: number;
+  generations: number;
+  /**
+   * `true` seulement si le plafond est réellement contraignant (registre
+   * partagé et durable). `false` = garde-fou indicatif, à dire tel quel.
+   */
+  strict: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -141,6 +188,8 @@ export interface GenerateSheetSuccessResponse {
     /** Statut global de la planche : le plus sévère des quatre. */
     overallStatus: "ok" | "warning" | "error";
     usage: TokenUsage | null;
+    cost: CostReport;
+    budget: BudgetReport;
   };
 }
 

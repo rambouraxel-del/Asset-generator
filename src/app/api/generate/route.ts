@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 
 import { LIMITS } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import {
+  abandonGeneration,
+  guardGeneration,
+  readSpendLimit,
+  settleGeneration,
+  type GuardContext,
+} from "@/lib/budget/guard";
+import { computeServerCost } from "@/lib/budget/serverPricing";
 import { isApiKeyConfigured } from "@/lib/openai/client";
 import { generateAssetImage } from "@/lib/openai/imageGeneration";
 import { buildAssetPrompt } from "@/lib/prompt/assetPrompt";
@@ -77,12 +85,31 @@ export const maxDuration = 300;
  * réellement demandée à l'API.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  let guard: GuardContext | null = null;
+
   try {
     if (!isApiKeyConfigured() && process.env.MOCK_OPENAI !== "1") {
       throw new AppError("MISSING_API_KEY", {
         detail: "Rejected before calling OpenAI: OPENAI_API_KEY is not set.",
       });
     }
+
+    /*
+     * Identité, autorisation de dépense, anti double-soumission et plafond.
+     * Tout est refusé ici AVANT le moindre appel payant : une requête bloquée
+     * par le budget ne doit rien coûter.
+     */
+    const guardOutcome = await guardGeneration(request, {
+      idempotencyKey: request.headers.get("x-idempotency-key"),
+    });
+
+    // Demande déjà payée : on rend son résultat plutôt que d'en facturer un second.
+    if (guardOutcome.kind === "replay") {
+      return NextResponse.json(guardOutcome.result as GenerateSuccessResponse, {
+        headers: { "Cache-Control": "no-store", "x-idempotent-replay": "1" },
+      });
+    }
+    guard = guardOutcome.context;
 
     const formData = await readFormData(request);
 
@@ -162,6 +189,17 @@ export async function POST(request: Request): Promise<NextResponse> {
         (image.usage?.totalTokens != null ? ` tokens=${image.usage.totalTokens}` : ""),
     );
 
+    /*
+     * L'appel a eu lieu : il est comptabilisé, que son coût soit calculable ou
+     * non. Un coût inconnu est enregistré COMME INCONNU, jamais comme zéro.
+     */
+    const cost = computeServerCost(image.usage);
+    await settleGeneration(guard, {
+      costUsd: cost.status === "measured" ? cost.amountUsd : null,
+      counted: true,
+    });
+    const spend = await guard.ledger.read(guard.identity.ownerId);
+
     const body: GenerateSuccessResponse = {
       image: { base64: delivered.base64, mimeType: delivered.mimeType },
       request: input.request,
@@ -187,13 +225,36 @@ export async function POST(request: Request): Promise<NextResponse> {
         minimalResolution: plan.minimalResolution,
         postProcessing: delivered.report,
         usage: image.usage,
+        cost: {
+          status: cost.status,
+          amountUsd: cost.status === "measured" ? cost.amountUsd : null,
+          pricingVersion: cost.status === "measured" ? cost.pricingVersion : null,
+          reason: cost.status === "unknown" ? cost.reason : null,
+          partial: cost.status === "measured" ? cost.partial : false,
+        },
+        budget: {
+          limitUsd: readSpendLimit(),
+          recordedUsd: spend.recordedUsd,
+          measuredUsd: spend.measuredUsd,
+          estimatedUsd: spend.estimatedUsd,
+          unknownCostCount: spend.unknownCostCount,
+          generations: spend.generations,
+          strict: guard.strictLimit,
+        },
       },
     };
+
+    // Mémorisé pour qu'un renvoi identique soit rejoué au lieu d'être refacturé.
+    await settleGeneration(guard, { costUsd: null, counted: false, result: body });
 
     return NextResponse.json(body, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
+    // L'appel n'a pas abouti : la réservation est libérée pour ne pas bloquer
+    // le budget avec une dépense qui n'a jamais eu lieu.
+    if (guard !== null) await abandonGeneration(guard);
+
     const appError =
       error instanceof AppError ? error : new AppError("UNKNOWN", { detail: String(error) });
 

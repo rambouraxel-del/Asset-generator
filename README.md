@@ -1,4 +1,4 @@
-# Asset Generator — V0.2.4
+# Asset Generator — V0.3.0
 
 Web-app de génération d'**assets graphiques cohérents pour jeu vidéo**, à partir
 de l'API OpenAI GPT Image.
@@ -56,6 +56,79 @@ Les deux familles d'images ne peuvent pas être confondues, à trois niveaux :
 
 Les tests [`isolation.test.ts`](tests/isolation.test.ts) et
 [`library.test.ts`](tests/library.test.ts) verrouillent ces trois barrières.
+
+## Nouveautés de la V0.3.0 — mode projet, mémoire durable, garde-fous budgétaires
+
+Première étape de la refonte. Elle ne retire aucune fonction existante : les
+modes **Asset unique** et **Planche de personnage** sont inchangés, ainsi que
+leurs traitements locaux.
+
+### Mode projet
+
+Un projet porte une **charte structurée** en six champs (perspective, éclairage,
+contours, niveau de détail, proportions, échelle), des **palettes**, des
+**dimensions par défaut** et des **règles par famille** — personnages, objets,
+végétation, sols, constructions.
+
+Aucune règle d'univers n'est codée en dur : « Timeless Journey » se crée comme
+n'importe quel projet, en le nommant et en saisissant sa charte.
+
+Chaque génération conserve une **copie figée** des règles, références et
+paramètres réellement employés. Modifier la charte plus tard ne réécrit donc
+pas l'historique.
+
+### Cohérence avec peu de jetons
+
+Le prompt est **assemblé de façon déterministe** :
+
+```
+règles communes du projet + règles de la famille + demande de l'utilisateur
+```
+
+Aucune IA ne résume la mémoire ni ne réécrit les prompts. L'historique des
+générations n'est jamais renvoyé au modèle : la mémoire est une base
+structurée, pas une conversation.
+
+Les **sols ne partagent pas les contraintes des objets** — une tuile couvrante
+doit aller bord à bord et se raccorder, là où un objet isolé garde une marge
+transparente. Confondre les deux produit des sols troués ; les deux jeux de
+consignes sont donc strictement séparés.
+
+Les références envoyées sont **uniquement celles que vous avez validées**, et
+jamais toute la bibliothèque : la proposition automatique est plafonnée, chaque
+choix est motivé, et vous pouvez la modifier avant de lancer.
+
+### Bibliothèque à quatre variantes
+
+`original` · `processed` · `manual` · `master`. Une **retouche manuelle n'est
+jamais écrasée automatiquement**, et une **version maîtresse conserve les pixels
+de sa source** — la promotion copie les octets, elle ne retraite rien.
+
+### Protections budgétaires
+
+- Modèle et qualité **réellement utilisés** affichés dans la réponse.
+- Coût **mesuré / estimé / inconnu**, jamais confondus. Une donnée absente
+  n'est pas zéro.
+- **Version de tarif** enregistrée avec chaque génération.
+- **Plafond de dépense** serveur, tenant compte des appels en cours.
+- **Protection anti double-soumission** entre onglets : un second envoi
+  identique reçoit le résultat déjà payé, il n'en facture pas un nouveau.
+- **Liste d'autorisation** : s'inscrire ne suffit pas à dépenser votre crédit.
+- Aucune montée en qualité ni relance payante automatique.
+
+> **Limite à connaître.** Sans base de données configurée, le plafond est un
+> garde-fou **indicatif** : le compteur vit en mémoire, propre à chaque instance
+> et remis à zéro au redémarrage. Voir [`docs/memoire-et-budget.md`](docs/memoire-et-budget.md).
+
+### Mémoire durable — préparée, pas encore active
+
+Les migrations SQL, les politiques d'accès, le stockage privé et
+l'authentification serveur sont **livrés et prêts**, mais ne s'activent qu'une
+fois votre projet Supabase configuré. Tant que ce n'est pas fait, tout reste
+dans le navigateur, et l'application le dit plutôt que de laisser croire à une
+synchronisation qui n'existe pas.
+
+Marche à suivre complète, clic par clic : [`docs/memoire-et-budget.md`](docs/memoire-et-budget.md).
 
 ## Nouveautés de la V0.2.4 — planche de personnage
 
@@ -680,11 +753,12 @@ tests/                              311 tests
 - Messages d'erreur lisibles côté client ; détails techniques uniquement dans la
   console serveur — jamais la clé, jamais le prompt, jamais le base64 complet.
 
-## Volontairement absent de la V0.2.4
+## Volontairement absent de la V0.3.0
 
 Comptes utilisateurs, authentification, synchronisation cloud, base distante,
 sélection automatique des références par IA, RAG, mémoire, apprentissage,
 fine-tuning, validation visuelle par IA, palette globale par Style Pack,
-animations, génération par lots, export/import, éditeur d'ancrage, contour
-automatique, correction par un second appel GPT, planches de marche ou d'attaque,
-tailles de cellule autres que 48 × 48.
+éditeur de pixels complet, aperçu de scène, génération de kits modulaires,
+entraînement personnalisé, comparaison payante de modèles, file de production
+avancée, animations, génération par lots, éditeur d'ancrage, correction par un
+second appel GPT, tailles de cellule autres que 48 × 48.
