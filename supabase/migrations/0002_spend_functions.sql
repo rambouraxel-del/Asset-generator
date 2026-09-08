@@ -146,6 +146,15 @@ begin
 end;
 $$;
 
+/*
+ * Lecture des compteurs de dépense.
+ *
+ * SÉCURITÉ : cette fonction contourne RLS (security definer). Si elle acceptait
+ * un compte arbitraire en paramètre tout en étant appelable par n'importe quel
+ * compte connecté, chacun pourrait lire les dépenses des autres en devinant un
+ * identifiant. Elle REFUSE donc tout compte autre que l'appelant, sauf lorsque
+ * l'appel vient du serveur (clé de service, où auth.uid() est nul).
+ */
 create or replace function public.read_spend(p_owner uuid)
 returns jsonb
 language plpgsql
@@ -159,6 +168,13 @@ declare
   v_gens      integer := 0;
   v_inflight  numeric := 0;
 begin
+  -- auth.uid() est nul pour un appel serveur (clé de service) : autorisé.
+  -- Un compte connecté ne peut lire QUE ses propres compteurs.
+  if auth.uid() is not null and auth.uid() <> p_owner then
+    raise exception 'read_spend: acces refuse a un autre compte'
+      using errcode = '42501';
+  end if;
+
   select measured_usd, estimated_usd, unknown_cost_count, generations
     into v_measured, v_estimated, v_unknown, v_gens
     from public.spend_ledger where owner_id = p_owner;
@@ -192,13 +208,26 @@ security definer
 set search_path = public
 as $$
 declare
-  v_state  text;
-  v_result jsonb;
-  v_owner  uuid;
+  v_state    text;
+  v_result   jsonb;
+  v_owner    uuid;
+  v_inserted text;
 begin
+  /*
+   * L'insertion elle-même décide qui travaille : « RETURNING » ne renvoie une
+   * ligne QUE si c'est nous qui l'avons créée. Déduire cela d'une fenêtre
+   * temporelle (« créée il y a moins d'une seconde ») serait faux : deux
+   * instances appelant dans la même seconde se croiraient toutes deux
+   * légitimes et lanceraient deux générations facturées.
+   */
   insert into public.idempotency_keys (key, owner_id, state)
   values (p_key, p_owner, 'in-progress')
-  on conflict (key) do nothing;
+  on conflict (key) do nothing
+  returning key into v_inserted;
+
+  if v_inserted is not null then
+    return jsonb_build_object('status', 'claimed');
+  end if;
 
   select state, result, owner_id into v_state, v_result, v_owner
     from public.idempotency_keys where key = p_key;
@@ -213,13 +242,7 @@ begin
     return jsonb_build_object('status', 'completed', 'result', v_result);
   end if;
 
-  -- Si nous venons de l'insérer, c'est à nous de travailler.
-  if (select count(*) from public.idempotency_keys
-       where key = p_key and state = 'in-progress'
-         and created_at > now() - interval '1 second') > 0 then
-    return jsonb_build_object('status', 'claimed');
-  end if;
-
+  -- La ligne existait déjà et n'est pas terminée : un autre appel la traite.
   return jsonb_build_object('status', 'in-progress');
 end;
 $$;

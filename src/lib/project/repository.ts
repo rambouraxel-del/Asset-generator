@@ -31,6 +31,20 @@ import type { Project } from "@/types/project";
 /** État de synchronisation, affiché tel quel à l'utilisateur. */
 export type SyncState = "local-only" | "syncing" | "synced" | "error";
 
+/**
+ * Ce qui est réellement synchronisé aujourd'hui.
+ *
+ * Annoncer « Synchronisé » sans plus de précision laisserait croire que TOUT
+ * suit d'un appareil à l'autre. Ce n'est pas le cas : seule la table `projects`
+ * est écrite à distance. Les images vivent encore dans IndexedDB, donc sur un
+ * seul appareil. Le dire est la seule façon d'éviter qu'un utilisateur croie
+ * ses références à l'abri alors qu'elles ne le sont pas.
+ */
+export const SYNCED_SCOPE = {
+  remote: ["projets", "chartes", "palettes", "règles par famille"],
+  localOnly: ["références validées", "bibliothèque d'assets", "variantes"],
+} as const;
+
 export const SYNC_LABELS: Record<SyncState, string> = {
   "local-only": "Local uniquement",
   syncing: "Synchronisation…",
@@ -42,7 +56,8 @@ export const SYNC_HINTS: Record<SyncState, string> = {
   "local-only":
     "Vos données ne quittent pas ce navigateur. Elles ne suivront pas sur un autre appareil et disparaîtront si vous videz le cache.",
   syncing: "Envoi au serveur en cours.",
-  synced: "Enregistré sur le serveur. Vous retrouverez ce projet sur vos autres appareils.",
+  synced:
+    "Projet enregistré sur le serveur : nom, charte, palettes et règles vous suivront sur vos autres appareils. Les IMAGES (références et bibliothèque) restent pour l'instant sur cet appareil.",
   error:
     "Le serveur n'a pas accepté la dernière modification. Elle n'est PAS enregistrée à distance : réessayez avant de fermer.",
 };

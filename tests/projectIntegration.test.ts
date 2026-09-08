@@ -27,6 +27,7 @@ import { selectReferences } from "@/lib/project/referenceSelection";
 import { promoteToMaster, writeVariant, type AssetVariant, type VariantSet } from "@/lib/library/variants";
 import { validateManifest, MANIFEST_VERSION, type ProjectManifest } from "@/lib/project/portableProject";
 import { planLegacyImport } from "@/lib/project/legacyImport";
+import { SYNCED_SCOPE, SYNC_HINTS } from "@/lib/project/repository";
 import { FAMILY_LABELS } from "@/types/project";
 import type { ProjectReference } from "@/types/project";
 import type { GenerationSettings } from "@/lib/generation/payload";
@@ -610,5 +611,27 @@ describe("Migration de l'ancienne bibliothèque", () => {
     });
     // Le plan ne produit aucune référence à partir des assets.
     expect(plan.references).toHaveLength(0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 7. Honnêteté de l'état de synchronisation                                  */
+/* -------------------------------------------------------------------------- */
+
+describe("Ce que « Synchronisé » promet", () => {
+  it("annonce explicitement ce qui NE suit PAS d'un appareil à l'autre", () => {
+    // Aujourd'hui, seule la table `projects` part au serveur. Dire simplement
+    // « Synchronisé » laisserait croire que les images suivent aussi.
+    expect(SYNCED_SCOPE.localOnly).toContain("références validées");
+    expect(SYNCED_SCOPE.localOnly).toContain("bibliothèque d'assets");
+    expect(SYNC_HINTS.synced).toMatch(/restent pour l'instant sur cet appareil/);
+  });
+
+  it("ne présente jamais « local uniquement » comme une mise à l'abri", () => {
+    expect(SYNC_HINTS["local-only"]).toMatch(/ne suivront pas sur un autre appareil/);
+  });
+
+  it("dit clairement qu'une erreur n'a RIEN enregistré à distance", () => {
+    expect(SYNC_HINTS.error).toMatch(/PAS enregistrée à distance/);
   });
 });

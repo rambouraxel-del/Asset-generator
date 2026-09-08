@@ -1,6 +1,11 @@
 "use client";
 
-import { SYNC_HINTS, SYNC_LABELS, type SyncState } from "@/lib/project/repository";
+import {
+  SYNC_HINTS,
+  SYNC_LABELS,
+  SYNCED_SCOPE,
+  type SyncState,
+} from "@/lib/project/repository";
 
 /**
  * État de synchronisation, affiché en permanence.
@@ -55,6 +60,14 @@ export function SyncBadge({
         {SYNC_LABELS[state]}
       </p>
       <p className="mt-0.5 text-xs opacity-90">{detail ?? SYNC_HINTS[state]}</p>
+
+      {state === "synced" ? (
+        <p className="mt-1.5 text-xs opacity-80">
+          <span className="font-medium">Sur le serveur :</span>{" "}
+          {SYNCED_SCOPE.remote.join(", ")}. <span className="font-medium">Sur cet appareil
+          seulement :</span> {SYNCED_SCOPE.localOnly.join(", ")}.
+        </p>
+      ) : null}
     </div>
   );
 }

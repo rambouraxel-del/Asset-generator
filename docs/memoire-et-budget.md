@@ -119,6 +119,58 @@ Cette migration ne supprime rien et peut être relancée sans dégât.
 
 ---
 
+## 3 bis. ✅ Procédure de validation cloud — les seules actions à faire vous-même
+
+Cette étape ne peut pas être menée depuis l'environnement de développement :
+Supabase y est bloqué par la politique réseau. Voici **exactement** ce qui reste
+à faire, dans l'ordre. Comptez vingt minutes.
+
+### A. Appliquer les migrations (2 min)
+
+Supabase → **SQL Editor** → **New query** → coller `0001_init.sql` → **Run**.
+Recommencer avec `0002_spend_functions.sql`.
+
+**Résultat attendu :** « Success. No rows returned », deux fois.
+Si une erreur apparaît, arrêtez-vous et envoyez-la moi.
+
+### B. Vérifier le socle (1 min)
+
+Toujours dans le SQL Editor, coller et exécuter :
+
+```sql
+select count(*) as tables   from pg_tables  where schemaname = 'public';
+select count(*) as policies from pg_policies where schemaname = 'public';
+select count(*) as storage  from pg_policies where schemaname = 'storage';
+select id, public from storage.buckets where id = 'asset-images';
+```
+
+**Attendu :** 9 tables, 9 politiques, 4 politiques de stockage, bucket
+`public = false`. Tout autre chiffre est un problème.
+
+### C. Variables dans Vercel (5 min)
+
+Voir §3.4. Cochez **Production ET Preview**, puis **redéployez**.
+
+### D. Créer deux comptes (2 min)
+
+Supabase → **Authentication** → **Users** → **Add user** :
+- votre adresse (celle de `GENERATION_ALLOWLIST`) ;
+- une seconde adresse de test, **absente** de la liste.
+
+### E. Les six vérifications (10 min)
+
+| # | Ce que vous faites | Attendu |
+|---|---|---|
+| 1 | Connexion, créer « Timeless Journey », remplir perspective + échelle, enregistrer | Badge **Synchronisé** |
+| 2 | Autre navigateur (ou téléphone), même compte | Le projet et la charte sont là |
+| 3 | Modifier la charte sur l'appareil A, enregistrer. Puis modifier sur B **resté sur l'ancienne version** | B refuse, message de conflit, **rien n'est écrasé** |
+| 4 | Se connecter avec le **second** compte | **Aucun** projet visible |
+| 5 | Avec le second compte, tenter une génération | Refus : compte non autorisé |
+| 6 | Redémarrer le déploiement Vercel, recharger | Projet toujours présent |
+
+Envoyez-moi le résultat de B et de E : je saurai si la V0.3.1 peut passer en
+production.
+
 ## 4. Tester sur deux appareils
 
 1. **Ordinateur** : ouvrez le site, connectez-vous, créez le projet

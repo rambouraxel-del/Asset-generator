@@ -171,6 +171,39 @@ create table if not exists public.idempotency_keys (
 );
 
 -- ============================================================================
+-- Privilèges de table
+-- ============================================================================
+-- RLS filtre les LIGNES ; les privilèges autorisent l'accès à la TABLE. Il faut
+-- les deux : sans GRANT, un compte connecté reçoit « permission denied » avant
+-- même que RLS n'entre en jeu.
+--
+-- Supabase pose des privilèges par défaut sur le schéma `public`, mais s'y fier
+-- rend la migration dépendante d'une configuration implicite. On les déclare
+-- donc explicitement : la migration devient autonome et vérifiable.
+--
+-- `anon` (visiteur non connecté) ne reçoit RIEN : aucune donnée n'est
+-- accessible sans compte.
+grant usage on schema public to anon, authenticated;
+
+grant select, insert, update, delete on
+  public.projects,
+  public.project_references,
+  public.assets,
+  public.asset_variants,
+  public.generations
+to authenticated;
+
+-- Compteurs : lecture seule pour le compte. Les écritures passent par les
+-- fonctions système, appelées avec la clé de service.
+grant select on public.spend_ledger, public.spend_reservations to authenticated;
+
+-- Liste d'autorisation : lecture seule, jamais d'écriture par l'API publique.
+grant select on public.allowed_generators to authenticated;
+
+-- Clés d'idempotence : lecture seule ; seules les fonctions système écrivent.
+grant select on public.idempotency_keys to authenticated;
+
+-- ============================================================================
 -- Row Level Security — tout est refusé par défaut, seul le propriétaire passe
 -- ============================================================================
 alter table public.projects            enable row level security;
@@ -183,6 +216,15 @@ alter table public.spend_reservations  enable row level security;
 alter table public.idempotency_keys    enable row level security;
 alter table public.allowed_generators  enable row level security;
 
+/*
+ * PostgreSQL n'accepte PAS la clause « IF NOT EXISTS » sur une politique :
+ * une telle instruction provoque une erreur de syntaxe et interrompt toute la
+ * migration, laissant RLS activé SANS aucune politique.
+ *
+ * Pour rester rejouable, chaque politique est donc supprimée si elle existe,
+ * puis recréée. C'est la seule forme idempotente valide, et elle ne détruit
+ * aucune donnée : une politique est une règle d'accès, pas un contenu.
+ */
 do $$
 declare
   t text;
@@ -192,15 +234,17 @@ begin
     'generations', 'spend_reservations', 'idempotency_keys'
   ]
   loop
+    execute format('drop policy if exists %I on public.%I', t || '_owner_only', t);
     execute format(
-      'create policy if not exists %I on public.%I for all to authenticated
+      'create policy %I on public.%I for all to authenticated
          using (owner_id = auth.uid()) with check (owner_id = auth.uid())',
       t || '_owner_only', t
     );
   end loop;
 end $$;
 
-create policy if not exists spend_ledger_owner_only on public.spend_ledger
+drop policy if exists spend_ledger_owner_only on public.spend_ledger;
+create policy spend_ledger_owner_only on public.spend_ledger
   for all to authenticated
   using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
@@ -208,7 +252,8 @@ create policy if not exists spend_ledger_owner_only on public.spend_ledger
 -- si l'on est autorisé) mais MODIFIABLE par personne via l'API publique :
 -- aucune policy d'écriture n'est créée. Seul le propriétaire du projet
 -- Supabase peut l'alimenter, depuis le tableau de bord ou la clé de service.
-create policy if not exists allowed_generators_read on public.allowed_generators
+drop policy if exists allowed_generators_read on public.allowed_generators;
+create policy allowed_generators_read on public.allowed_generators
   for select to authenticated using (true);
 
 -- ============================================================================
@@ -221,18 +266,22 @@ on conflict (id) do nothing;
 -- Chaque fichier vit sous « <owner_id>/... ». La politique compare le premier
 -- segment du chemin à l'identifiant du compte : un compte ne peut donc ni lire
 -- ni écrire hors de son propre dossier.
-create policy if not exists asset_images_owner_read on storage.objects
+drop policy if exists asset_images_owner_read on storage.objects;
+create policy asset_images_owner_read on storage.objects
   for select to authenticated
   using (bucket_id = 'asset-images' and (storage.foldername(name))[1] = auth.uid()::text);
 
-create policy if not exists asset_images_owner_write on storage.objects
+drop policy if exists asset_images_owner_write on storage.objects;
+create policy asset_images_owner_write on storage.objects
   for insert to authenticated
   with check (bucket_id = 'asset-images' and (storage.foldername(name))[1] = auth.uid()::text);
 
-create policy if not exists asset_images_owner_update on storage.objects
+drop policy if exists asset_images_owner_update on storage.objects;
+create policy asset_images_owner_update on storage.objects
   for update to authenticated
   using (bucket_id = 'asset-images' and (storage.foldername(name))[1] = auth.uid()::text);
 
-create policy if not exists asset_images_owner_delete on storage.objects
+drop policy if exists asset_images_owner_delete on storage.objects;
+create policy asset_images_owner_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'asset-images' and (storage.foldername(name))[1] = auth.uid()::text);
