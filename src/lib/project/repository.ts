@@ -25,6 +25,7 @@
  */
 
 import { applyVersioned, type ConcurrencyOutcome } from "@/lib/project/concurrency";
+import { createProjectId, isValidUuid } from "@/lib/project/ids";
 import { loadProjects, saveProjects } from "@/lib/storage/projects";
 import type { Project } from "@/types/project";
 
@@ -237,7 +238,20 @@ export async function saveProject(
   remote: RemoteAccess | null,
   current: Project,
   change: (project: Project) => Project,
-): Promise<RepositoryResult<Project> & { conflict: Project | null }> {
+): Promise<
+  RepositoryResult<Project> & {
+    conflict: Project | null;
+    /**
+     * Identifiant qu'avait le projet AVANT cet appel, quand il diffère de
+     * `value.id`. C'est le cas d'un projet créé hors connexion et synchronisé
+     * ici pour la première fois : son identifiant local n'était pas un UUID
+     * valide pour Postgres, un nouveau lui est attribué. `null` sinon.
+     * L'appelant s'en sert pour migrer ce qui, localement, pointait vers
+     * l'ancien identifiant (les références de `IndexedDB`, l'onglet actif…).
+     */
+    previousId: string | null;
+  }
+> {
   const outcome: ConcurrencyOutcome<Project> = applyVersioned(
     current,
     current.version,
@@ -249,6 +263,7 @@ export async function saveProject(
       value: current,
       error: outcome.message,
       conflict: outcome.current,
+      previousId: null,
     };
   }
 
@@ -256,7 +271,53 @@ export async function saveProject(
 
   if (remote === null) {
     saveProjects(loadProjects().map((p) => (p.id === next.id ? next : p)));
-    return { state: "local-only", value: next, error: null, conflict: null };
+    return { state: "local-only", value: next, error: null, conflict: null, previousId: null };
+  }
+
+  /*
+   * PREMIÈRE SYNCHRONISATION D'UN PROJET CRÉÉ HORS CONNEXION.
+   *
+   * Son identifiant local (par exemple un ancien `project-<uuid>` d'une
+   * version antérieure, ou tout id non-UUID) n'est PAS accepté par la colonne
+   * `uuid` de Postgres. Tenter un PATCH échouerait (22P02) ou, pire, ne
+   * toucherait aucune ligne et serait pris à tort pour un conflit de version
+   * avec un autre appareil. On crée donc la ligne distante avec un UUID
+   * fraîchement généré — c'est une INSERTION, pas une mise à jour — et on
+   * rend l'ancien identifiant à l'appelant pour qu'il propage le changement
+   * localement. Rien n'est perdu : tous les champs de `next` sont recopiés
+   * tels quels, seuls `id` et `version` sont réinitialisés comme pour tout
+   * nouveau projet distant.
+   */
+  if (!isValidUuid(current.id)) {
+    const migrated = await createRemoteProject(remote, {
+      ...next,
+      id: createProjectId(),
+      version: 1,
+    });
+
+    if (migrated.error !== null) {
+      // Échec réseau ou serveur : le projet local n'est PAS touché, rien
+      // n'est perdu, l'ancien identifiant reste utilisable pour réessayer.
+      return {
+        state: migrated.state,
+        value: current,
+        error: migrated.error,
+        conflict: null,
+        previousId: null,
+      };
+    }
+
+    // `createRemoteProject` a déjà ajouté la nouvelle entrée au cache ; on
+    // retire l'ancienne pour ne pas laisser le même projet en double.
+    saveProjects(loadProjects().filter((p) => p.id !== current.id));
+
+    return {
+      state: "synced",
+      value: migrated.value,
+      error: null,
+      conflict: null,
+      previousId: current.id,
+    };
   }
 
   try {
@@ -285,18 +346,20 @@ export async function saveProject(
         error:
           "Ce projet a été modifié sur un autre appareil. Vos changements n'ont PAS été enregistrés — rechargez pour voir la version à jour avant de recommencer.",
         conflict: rows.length === 0 && fresh.length > 0 ? toProject(fresh[0]) : null,
+        previousId: null,
       };
     }
 
     const saved = toProject(rows[0]);
     saveProjects(loadProjects().map((p) => (p.id === saved.id ? saved : p)));
-    return { state: "synced", value: saved, error: null, conflict: null };
+    return { state: "synced", value: saved, error: null, conflict: null, previousId: null };
   } catch (error) {
     return {
       state: "error",
       value: current,
       error: `Modification NON enregistrée sur le serveur. ${String(error)}`,
       conflict: null,
+      previousId: null,
     };
   }
 }

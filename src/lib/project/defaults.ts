@@ -15,7 +15,9 @@
 
 import { ASSET_FAMILIES, emptyBudget, emptyCharter } from "@/types/project";
 import type { AssetFamily, FamilyRule, FramingMode, Project } from "@/types/project";
-import { createId } from "@/lib/storage/db";
+import { createProjectId } from "@/lib/project/ids";
+
+export { createProjectId } from "@/lib/project/ids";
 
 /**
  * Cadrage par défaut de chaque famille.
@@ -52,10 +54,6 @@ export function createDefaultFamilyRules(): FamilyRule[] {
     framing: DEFAULT_FRAMING[family],
     paletteId: null,
   }));
-}
-
-export function createProjectId(): string {
-  return createId("project");
 }
 
 /** Crée un projet vierge. Le nom est la seule donnée obligatoire. */

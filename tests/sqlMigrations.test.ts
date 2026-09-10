@@ -90,10 +90,17 @@ async function asAuthenticated(db: Db, uid: string, sql: string, params: unknown
 }
 
 describe("Migrations : exécution réelle", () => {
-  it("s'applique sans erreur sur une base vierge", async () => {
-    const db = await freshDatabase();
-    await expect(applyMigrations(db)).resolves.not.toThrow();
-  });
+  it(
+    "s'applique sans erreur sur une base vierge",
+    async () => {
+      // Premier test du processus à instancier PGlite : le coût de démarrage
+      // du WASM (non mis en cache avant ce point) peut dépasser les 5 s par
+      // défaut sous charge, sans rapport avec la migration elle-même.
+      const db = await freshDatabase();
+      await expect(applyMigrations(db)).resolves.not.toThrow();
+    },
+    20_000,
+  );
 
   it("crée toutes les tables attendues", async () => {
     const { db } = await setup();

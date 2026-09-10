@@ -39,3 +39,26 @@ export async function putProjectReference(reference: ProjectReference): Promise<
 export async function deleteProjectReference(id: string): Promise<void> {
   await runRequest(STORE_PROJECT_REFERENCES, "readwrite", (store) => store.delete(id));
 }
+
+/**
+ * Réécrit le projet propriétaire de toutes les références locales d'un projet.
+ *
+ * Sert UNIQUEMENT à la première synchronisation d'un projet créé hors
+ * connexion : Supabase lui attribue alors un nouvel identifiant (voir
+ * `lib/project/repository.ts`), et les références qui pointaient vers
+ * l'ancien deviendraient orphelines si on ne les mettait pas à jour.
+ *
+ * Chaque référence est réécrite EN PLACE (même clé IndexedDB, `put` et non
+ * `add`) : aucune n'est dupliquée, aucune n'est perdue. Renvoie le nombre de
+ * références migrées, pour que l'appelant puisse le vérifier.
+ */
+export async function migrateProjectReferenceIds(
+  previousProjectId: string,
+  nextProjectId: string,
+): Promise<number> {
+  const references = await listProjectReferences(previousProjectId);
+  for (const reference of references) {
+    await putProjectReference({ ...reference, projectId: nextProjectId });
+  }
+  return references.length;
+}

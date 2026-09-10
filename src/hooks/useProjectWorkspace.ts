@@ -33,6 +33,7 @@ import {
   type RemoteAccess,
   type SyncState,
 } from "@/lib/project/repository";
+import { migrateProjectReferenceIds } from "@/lib/storage/projectReferences";
 import { loadActiveProjectId, saveActiveProjectId } from "@/lib/storage/projects";
 import type { Project } from "@/types/project";
 
@@ -160,13 +161,30 @@ export function useProjectWorkspace() {
       setConflict(result.conflict);
 
       if (result.error === null) {
-        setProjects((current) =>
-          current.map((entry) => (entry.id === result.value.id ? result.value : entry)),
-        );
+        if (result.previousId !== null && result.previousId !== result.value.id) {
+          /*
+           * Première synchronisation d'un projet créé hors connexion : le
+           * serveur lui a attribué un nouvel identifiant UUID. On propage le
+           * changement AVANT de mettre à jour l'état affiché, pour que les
+           * références locales ne pointent jamais, même un instant, vers un
+           * projet qui n'existe plus sous cet identifiant.
+           */
+          await migrateProjectReferenceIds(result.previousId, result.value.id);
+
+          setProjects((current) => [
+            result.value,
+            ...current.filter((entry) => entry.id !== result.previousId),
+          ]);
+          if (activeId === result.previousId) selectProject(result.value.id);
+        } else {
+          setProjects((current) =>
+            current.map((entry) => (entry.id === result.value.id ? result.value : entry)),
+          );
+        }
       }
       return result;
     },
-    [remote],
+    [remote, activeId, selectProject],
   );
 
   /** Accepte la version du serveur après un conflit, sans rien écraser. */
